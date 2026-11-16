@@ -1,0 +1,2377 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#F6B3D0">
+  <title>ChessPages AR | Xadrez em Realidade Aumentada</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --rosa-principal: #F6B3D0;
+      --rosa-escuro: #C83E7B;
+      --azul-celeste: #82C8F3;
+      --azul-hover: #6EB9E8;
+      --azul-ativo: #1D6FA5;
+      --fundo-creme: #FFFED6;
+      --superficie-branca: rgba(255, 255, 255, 0.86);
+      --superficie-forte: rgba(255, 255, 255, 0.94);
+      --texto-principal: #0F172A;
+      --texto-secundario: #475569;
+      --verde-sucesso: #2E7D32;
+      --ambient-x: 50%;
+      --ambient-y: 38%;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border: none !important;
+      outline: none !important;
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #F8FAFC;
+      color: var(--texto-principal);
+      position: relative;
+    }
+
+    div, section, header, footer, aside, nav, button, canvas, video {
+      border: none !important;
+      outline: none !important;
+    }
+
+    /* Fundo claro dinamico estilo SmartNeoCare quando camera inicia ou sem camera */
+    .youtube-ambient-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      overflow: hidden;
+      background: linear-gradient(180deg, #FDFCFB 0%, #F4F8FC 50%, #FEF9FB 100%);
+    }
+
+    .ambient-glow-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(95px);
+      opacity: 0.56;
+      pointer-events: none;
+    }
+
+    .orb-rose {
+      width: 680px;
+      height: 680px;
+      top: 8%;
+      left: 12%;
+      background: radial-gradient(circle, rgba(246, 179, 208, 0.55) 0%, rgba(226, 143, 178, 0.22) 48%, transparent 72%);
+      animation: orbFloatA 12s ease-in-out infinite alternate;
+    }
+
+    .orb-blue {
+      width: 740px;
+      height: 740px;
+      bottom: 6%;
+      right: 10%;
+      background: radial-gradient(circle, rgba(130, 200, 243, 0.54) 0%, rgba(90, 169, 220, 0.20) 50%, transparent 72%);
+      animation: orbFloatB 14s ease-in-out infinite alternate;
+    }
+
+    .orb-cream {
+      width: 580px;
+      height: 580px;
+      top: 44%;
+      left: 48%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle, rgba(255, 254, 214, 0.72) 0%, rgba(246, 179, 208, 0.16) 52%, transparent 75%);
+      animation: orbFloatC 10s ease-in-out infinite alternate;
+    }
+
+    @keyframes orbFloatA {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(55px, 38px) scale(1.1); }
+    }
+
+    @keyframes orbFloatB {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-60px, -42px) scale(1.12); }
+    }
+
+    @keyframes orbFloatC {
+      0% { transform: translate(-50%, -50%) scale(0.94); }
+      100% { transform: translate(-46%, -54%) scale(1.14); }
+    }
+
+    /* Camada 1: Video da camera em tela cheia */
+    #cameraVideo {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.45s ease;
+    }
+
+    #cameraVideo.active {
+      opacity: 1;
+    }
+
+    #cameraVideo.mirrored {
+      transform: scaleX(-1);
+    }
+
+    /* Camada 2: Cena AR 3D (Tabuleiro, Pecas, Cemiterios Laterais, Cantos) */
+    #threeCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 10;
+      display: block;
+      touch-action: none;
+    }
+
+    /* Camada 3: Mao do usuario SEMPRE na frente do tabuleiro + cursor de pincelada */
+    #handOverlayCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 20;
+      pointer-events: none;
+      display: block;
+    }
+
+    /* Camada 4: HUD flutuante leve, modo claro, sem bordas */
+    .hud-top {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      z-index: 30;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+
+    .hud-cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: auto;
+    }
+
+    .glass-pill {
+      background: var(--superficie-branca);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-radius: 16px;
+      padding: 8px 14px;
+      box-shadow: 0 8px 26px rgba(15, 23, 42, 0.10);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-chip {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 15px;
+      background: var(--superficie-forte);
+      border-radius: 16px;
+      box-shadow: 0 8px 26px rgba(15, 23, 42, 0.10);
+    }
+
+    .brand-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--rosa-principal) 0%, var(--azul-celeste) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--texto-principal);
+      flex-shrink: 0;
+    }
+
+    .brand-text-col {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+
+    .brand-title {
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: var(--texto-principal);
+      letter-spacing: -0.2px;
+    }
+
+    .turn-sub {
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--azul-ativo);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .turn-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+      display: inline-block;
+    }
+
+    .turn-dot.black {
+      background: #1E293B;
+    }
+
+    .score-pill {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--texto-secundario);
+      background: rgba(241, 245, 249, 0.85);
+      border-radius: 11px;
+      padding: 5px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .score-val {
+      color: var(--texto-principal);
+      font-weight: 800;
+    }
+
+    /* Botoes SmartNeoCare: totalmente sem bordas, cantos modernos, toque suave */
+    .neo-btn {
+      background: var(--superficie-forte);
+      color: var(--texto-principal);
+      border-radius: 14px;
+      padding: 9px 14px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.09);
+      transition: transform 0.16s ease, background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+    }
+
+    .neo-btn:hover {
+      transform: translateY(-1px);
+      background: #FFFFFF;
+      box-shadow: 0 10px 26px rgba(29, 111, 165, 0.16);
+    }
+
+    .neo-btn:active {
+      transform: translateY(0);
+    }
+
+    .neo-btn.active-blue {
+      background: linear-gradient(135deg, var(--azul-celeste) 0%, #63B7EC 100%);
+      color: var(--texto-principal);
+      box-shadow: 0 8px 22px rgba(130, 200, 243, 0.45);
+    }
+
+    .neo-btn.active-rose {
+      background: linear-gradient(135deg, var(--rosa-principal) 0%, #EE9CC1 100%);
+      color: var(--texto-principal);
+      box-shadow: 0 8px 22px rgba(246, 179, 208, 0.48);
+    }
+
+    .neo-btn.active-green {
+      background: linear-gradient(135deg, #DDF7E4 0%, #BEEED0 100%);
+      color: var(--verde-sucesso);
+      box-shadow: 0 8px 22px rgba(46, 125, 50, 0.22);
+    }
+
+    .neo-btn.pinch-hover {
+      transform: scale(1.06);
+      box-shadow: 0 10px 28px rgba(200, 62, 123, 0.28);
+    }
+
+    .status-pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--azul-ativo);
+      animation: pulseGlow 1.5s ease-in-out infinite;
+    }
+
+    .status-pulse.locked {
+      background: var(--verde-sucesso);
+      animation: none;
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(0.85); opacity: 0.5; }
+      50% { transform: scale(1.25); opacity: 1; }
+    }
+
+    /* Barra inferior discreta e nao invasiva */
+    .hud-bottom {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      width: max-content;
+      max-width: calc(100vw - 24px);
+      pointer-events: none;
+    }
+
+    .telemetry-pill {
+      pointer-events: auto;
+      background: var(--superficie-branca);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-radius: 16px;
+      padding: 9px 16px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.11);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .hand-badge {
+      background: rgba(130, 200, 243, 0.26);
+      color: var(--azul-ativo);
+      border-radius: 11px;
+      padding: 5px 11px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .hand-badge.pinching {
+      background: rgba(246, 179, 208, 0.55);
+      color: var(--rosa-escuro);
+    }
+
+    .hand-badge.cemetery {
+      background: rgba(255, 254, 214, 0.95);
+      color: #9A3412;
+    }
+
+    .scale-chip {
+      background: rgba(241, 245, 249, 0.92);
+      color: var(--texto-principal);
+      border-radius: 11px;
+      padding: 5px 10px;
+      font-size: 0.77rem;
+      font-weight: 800;
+    }
+
+    .hint-text {
+      font-size: 0.77rem;
+      font-weight: 600;
+      color: var(--texto-secundario);
+      text-align: center;
+    }
+
+    /* Aviso discreto apenas se a camera for bloqueada */
+    .cam-fallback-chip {
+      position: fixed;
+      top: 76px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 32;
+      background: var(--superficie-forte);
+      backdrop-filter: blur(16px);
+      border-radius: 14px;
+      padding: 8px 16px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.80rem;
+      font-weight: 700;
+      color: var(--texto-principal);
+    }
+
+    .cam-fallback-chip.visible {
+      display: flex;
+    }
+
+    @media (max-width: 820px) {
+      .hud-top {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+      }
+      .neo-btn {
+        padding: 8px 11px;
+        font-size: 0.76rem;
+      }
+      .brand-chip {
+        padding: 7px 11px;
+      }
+      .hint-text {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="youtube-ambient-bg" aria-hidden="true">
+    <div class="ambient-glow-orb orb-rose"></div>
+    <div class="ambient-glow-orb orb-blue"></div>
+    <div class="ambient-glow-orb orb-cream"></div>
+  </div>
+
+  <video id="cameraVideo" class="mirrored" autoplay playsinline muted></video>
+  <canvas id="threeCanvas"></canvas>
+  <canvas id="handOverlayCanvas"></canvas>
+
+  <header class="hud-top">
+    <div class="hud-cluster">
+      <div class="brand-chip">
+        <div class="brand-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 17h14l1-9-4 3-4-6-4 6-4-3 1 9z"/>
+            <path d="M4 21h16"/>
+          </svg>
+        </div>
+        <div class="brand-text-col">
+          <span class="brand-title">ChessPages AR</span>
+          <span class="turn-sub" id="turnStatus">
+            <span class="turn-dot" id="turnDot"></span>
+            <span id="turnLabel">Vez das Brancas</span>
+          </span>
+        </div>
+        <div class="score-pill" id="cemeteryCountPill">
+          <span>Cemiterio</span>
+          <span class="score-val" id="scoreVal">B 0 | P 0</span>
+        </div>
+      </div>
+
+      <div class="glass-pill">
+        <button class="neo-btn active-blue" id="btnVirtualMode" type="button" title="Jogar no tabuleiro virtual AR">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3"/>
+            <path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>
+          </svg>
+          <span>Tabuleiro Virtual AR</span>
+        </button>
+
+        <button class="neo-btn" id="btnRealMode" type="button" title="Procurar ou usar tabuleiro real na camera">
+          <span class="status-pulse" id="realBoardDot"></span>
+          <span id="realModeText">Procurando Tabuleiro Real</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="hud-cluster">
+      <button class="neo-btn" id="btnResizeMode" type="button" title="Redimensionar tabuleiro com a pincelada">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+        </svg>
+        <span>Redimensionar</span>
+      </button>
+
+      <button class="neo-btn active-rose" id="btnPlayMode" type="button" title="Alternar entre Modo IA e Modo Livre para 2 jogadores">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="8" r="4"/>
+          <path d="M4 20c1.8-3.8 5.1-5.5 8-5.5s6.2 1.7 8 5.5"/>
+        </svg>
+        <span id="playModeText">Modo IA</span>
+      </button>
+
+      <button class="neo-btn" id="btnMirror" type="button" title="Espelhar imagem da camera">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v18M8 7l-5 5 5 5V7zM16 7l5 5-5 5V7z"/>
+        </svg>
+        <span>Espelhar</span>
+      </button>
+
+      <button class="neo-btn" id="btnCameraFlip" type="button" title="Alternar camera frontal ou traseira">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span>Camera</span>
+      </button>
+
+      <button class="neo-btn active-blue" id="btnSound" type="button" title="Ativar ou silenciar efeitos sonoros">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+        <span id="soundText">Som Ativo</span>
+      </button>
+
+      <button class="neo-btn" id="btnReset" type="button" title="Reiniciar partida e cemiterios">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+          <path d="M3 3v5h5"/>
+        </svg>
+        <span>Reiniciar</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="cam-fallback-chip" id="camFallbackChip">
+    <span id="camFallbackMsg">Camera indisponivel. Jogo virtual AR ativo com controle por toque ou mouse.</span>
+    <button class="neo-btn active-blue" id="btnRetryCam" type="button">Ativar Camera</button>
+  </div>
+
+  <footer class="hud-bottom">
+    <div class="telemetry-pill">
+      <span class="hand-badge" id="handBadge">
+        <span class="status-pulse" id="handDot"></span>
+        <span id="handBadgeText">Mostre a mao na frente do tabuleiro</span>
+      </span>
+      <span class="scale-chip" id="scaleBadge">Escala 100%</span>
+      <span class="hint-text" id="hintText">Junte polegar e indicador (pincelada) para segurar pecas, mover ao cemiterio lateral ou redimensionar pelos cantos</span>
+    </div>
+  </footer>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // =========================================================================
+    // 1. MOTOR DE AUDIO PROCEDURAL (Web Audio API)
+    // =========================================================================
+    const SoundFX = (() => {
+      let ctx = null;
+      let enabled = true;
+      let lastResizeTick = 0;
+
+      function ensureCtx() {
+        if (!enabled) return null;
+        if (!ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return null;
+          ctx = new AudioCtx();
+        }
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+        return ctx;
+      }
+
+      function tone(freq, endFreq, dur, type, vol, delay = 0) {
+        const c = ensureCtx();
+        if (!c) return;
+        const now = c.currentTime + delay;
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now);
+        if (endFreq && endFreq !== freq) {
+          osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), now + dur);
+        }
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(vol, now + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+        osc.connect(gain);
+        gain.connect(c.destination);
+        osc.start(now);
+        osc.stop(now + dur + 0.02);
+      }
+
+      return {
+        isEnabled: () => enabled,
+        toggle() {
+          enabled = !enabled;
+          if (enabled) {
+            this.pinchGrab();
+          }
+          return enabled;
+        },
+        unlock: ensureCtx,
+        pinchGrab() {
+          tone(520, 820, 0.07, 'sine', 0.11);
+          tone(1040, 1280, 0.05, 'triangle', 0.04, 0.015);
+        },
+        piecePlace() {
+          tone(175, 62, 0.11, 'triangle', 0.18);
+          tone(420, 290, 0.055, 'sine', 0.06);
+        },
+        pieceCapture() {
+          tone(150, 48, 0.18, 'triangle', 0.20);
+          tone(440, 660, 0.14, 'sine', 0.09, 0.02);
+          tone(660, 880, 0.22, 'sine', 0.08, 0.08);
+        },
+        boardResize(scale) {
+          const now = performance.now();
+          if (now - lastResizeTick < 70) return;
+          lastResizeTick = now;
+          const pitch = 320 + scale * 220;
+          tone(pitch, pitch * 1.06, 0.035, 'sine', 0.04);
+        },
+        boardDetected() {
+          [523.25, 659.25, 783.99, 1046.5].forEach((n, idx) => {
+            tone(n, n * 1.01, 0.16, 'sine', 0.07, idx * 0.065);
+          });
+        },
+        checkAlert() {
+          tone(587.33, 554.37, 0.18, 'triangle', 0.10);
+          tone(440, 415, 0.22, 'triangle', 0.09, 0.10);
+        },
+        victoryFanfare() {
+          [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((n, idx) => {
+            tone(n, n, 0.28, 'sine', 0.09, idx * 0.09);
+          });
+        }
+      };
+    })();
+
+    // =========================================================================
+    // 2. REFERENCIAS DOM E ESTADO GLOBAL
+    // =========================================================================
+    const videoEl = document.getElementById('cameraVideo');
+    const threeCanvas = document.getElementById('threeCanvas');
+    const handCanvas = document.getElementById('handOverlayCanvas');
+    const handCtx = handCanvas.getContext('2d');
+    const handMaskCanvas = document.createElement('canvas');
+    const handMaskCtx = handMaskCanvas.getContext('2d');
+
+    const turnDotEl = document.getElementById('turnDot');
+    const turnLabelEl = document.getElementById('turnLabel');
+    const scoreValEl = document.getElementById('scoreVal');
+    const btnVirtualMode = document.getElementById('btnVirtualMode');
+    const btnRealMode = document.getElementById('btnRealMode');
+    const realBoardDot = document.getElementById('realBoardDot');
+    const realModeText = document.getElementById('realModeText');
+    const btnResizeMode = document.getElementById('btnResizeMode');
+    const btnPlayMode = document.getElementById('btnPlayMode');
+    const playModeText = document.getElementById('playModeText');
+    const btnMirror = document.getElementById('btnMirror');
+    const btnCameraFlip = document.getElementById('btnCameraFlip');
+    const btnSound = document.getElementById('btnSound');
+    const soundText = document.getElementById('soundText');
+    const btnReset = document.getElementById('btnReset');
+    const btnRetryCam = document.getElementById('btnRetryCam');
+    const camFallbackChip = document.getElementById('camFallbackChip');
+    const camFallbackMsg = document.getElementById('camFallbackMsg');
+    const handBadge = document.getElementById('handBadge');
+    const handDot = document.getElementById('handDot');
+    const handBadgeText = document.getElementById('handBadgeText');
+    const scaleBadge = document.getElementById('scaleBadge');
+
+    const appState = {
+      boardMode: 'virtual',      // 'virtual' | 'real'
+      autoSearchReal: true,
+      realBoardFound: false,
+      playMode: 'ai',            // 'ai' | 'free'
+      forceResizeMode: false,
+      mirrorVideo: true,
+      facingMode: 'user',
+      turn: 'w',
+      gameOver: false,
+      inCheck: false,
+      aiThinking: false,
+      boardScale: 1.0,
+      targetBoardScale: 1.0,
+      boardPos: new THREE.Vector3(0, 0, 0),
+      targetBoardPos: new THREE.Vector3(0, 0, 0),
+      lastMove: null,
+      cemeteryW: [],
+      cemeteryB: [],
+      heldPiece: null,
+      legalMovesForHeld: [],
+      resizeDrag: null,
+      dualPinch: null,
+      lastPinchBtnTime: 0,
+      videoReady: false
+    };
+
+    // =========================================================================
+    // 3. CENA 3D AR (Three.js r128) + MODELAGEM DAS PECAS + CEMITERIOS LATERAIS
+    // =========================================================================
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.1, 120);
+    const renderer = new THREE.WebGLRenderer({
+      canvas: threeCanvas,
+      alpha: true,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const hemiLight = new THREE.HemisphereLight(0xFFFFFF, 0xF6B3D0, 0.90);
+    scene.add(hemiLight);
+
+    const keyLight = new THREE.DirectionalLight(0xFFFDF7, 0.92);
+    keyLight.position.set(6, 16, 9);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 2;
+    keyLight.shadow.camera.far = 42;
+    keyLight.shadow.camera.left = -10;
+    keyLight.shadow.camera.right = 10;
+    keyLight.shadow.camera.top = 10;
+    keyLight.shadow.camera.bottom = -10;
+    keyLight.shadow.bias = -0.0005;
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x82C8F3, 0.45);
+    rimLight.position.set(-8, 8, -7);
+    scene.add(rimLight);
+
+    function updateCameraViewport() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const aspect = w / Math.max(h, 1);
+      camera.aspect = aspect;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+
+      // Enquadramento responsivo para caber tabuleiro + os dois cemiterios laterais
+      const distScale = aspect < 1.05 ? Math.max(1.18, 1.55 / Math.max(aspect, 0.55)) : 1.0;
+      camera.position.set(0, 11.4 * distScale, 10.6 * distScale);
+      camera.lookAt(0, -0.35, 0.15);
+
+      handCanvas.width = w;
+      handCanvas.height = h;
+      handMaskCanvas.width = w;
+      handMaskCanvas.height = h;
+    }
+
+    const boardGroup = new THREE.Group();
+    scene.add(boardGroup);
+
+    // Base do tabuleiro virtual AR
+    const boardBaseMat = new THREE.MeshStandardMaterial({
+      color: 0xFFFFFF,
+      roughness: 0.35,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.92
+    });
+    const boardBaseMesh = new THREE.Mesh(new THREE.BoxGeometry(8.65, 0.22, 8.65), boardBaseMat);
+    boardBaseMesh.position.y = -0.14;
+    boardBaseMesh.receiveShadow = true;
+    boardGroup.add(boardBaseMesh);
+
+    // Plano receptor de sombra para Modo Tabuleiro Real
+    const realShadowPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(8.5, 8.5),
+      new THREE.ShadowMaterial({ opacity: 0.26 })
+    );
+    realShadowPlane.rotation.x = -Math.PI / 2;
+    realShadowPlane.position.y = 0.01;
+    realShadowPlane.receiveShadow = true;
+    realShadowPlane.visible = false;
+    boardGroup.add(realShadowPlane);
+
+    // Casas 8x8 + indicadores de movimento valido
+    const tileMeshes = [];
+    const tileOverlayMeshes = [];
+    const lightTileMat = new THREE.MeshStandardMaterial({
+      color: 0xFFFDF8,
+      roughness: 0.42,
+      metalness: 0.04,
+      transparent: true,
+      opacity: 0.94
+    });
+    const darkTileMat = new THREE.MeshStandardMaterial({
+      color: 0x6EB9E8,
+      roughness: 0.38,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.92
+    });
+
+    const squarePickMeshes = [];
+    const tileGeo = new THREE.BoxGeometry(0.98, 0.06, 0.98);
+    const overlayGeo = new THREE.PlaneGeometry(0.92, 0.92);
+
+    for (let r = 0; r < 8; r++) {
+      tileMeshes[r] = [];
+      tileOverlayMeshes[r] = [];
+      for (let c = 0; c < 8; c++) {
+        const isLight = (r + c) % 2 === 0;
+        const tile = new THREE.Mesh(tileGeo, isLight ? lightTileMat : darkTileMat);
+        tile.position.set(c - 3.5, 0, r - 3.5);
+        tile.receiveShadow = true;
+        tile.userData = { kind: 'square', row: r, col: c };
+        boardGroup.add(tile);
+        tileMeshes[r][c] = tile;
+        squarePickMeshes.push(tile);
+
+        const ovMat = new THREE.MeshBasicMaterial({
+          color: 0x82C8F3,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false
+        });
+        const ov = new THREE.Mesh(overlayGeo, ovMat);
+        ov.rotation.x = -Math.PI / 2;
+        ov.position.set(c - 3.5, 0.042, r - 3.5);
+        boardGroup.add(ov);
+        tileOverlayMeshes[r][c] = ov;
+      }
+    }
+
+    // =========================================================================
+    // CEMITERIOS DE PECAS LATERAIS (ESQUERDA E DIREITA AO LADO DO TABULEIRO)
+    // =========================================================================
+    function drawRoundedRectPath(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function createLabelTexture(text, bgColor, textColor) {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 96;
+      const g = c.getContext('2d');
+      g.clearRect(0, 0, c.width, c.height);
+      g.fillStyle = bgColor;
+      drawRoundedRectPath(g, 8, 8, 496, 80, 26);
+      g.fill();
+      g.fillStyle = textColor;
+      g.font = '800 32px Segoe UI, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, 256, 49);
+      const tex = new THREE.CanvasTexture(c);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    const cemeteryLeftMat = new THREE.MeshStandardMaterial({
+      color: 0xE6F4FD,
+      roughness: 0.35,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.72
+    });
+    const cemeteryRightMat = new THREE.MeshStandardMaterial({
+      color: 0xFDEAF3,
+      roughness: 0.35,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.72
+    });
+
+    const cemeteryLeftTray = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.12, 8.4), cemeteryLeftMat);
+    cemeteryLeftTray.position.set(-5.85, -0.06, 0);
+    cemeteryLeftTray.receiveShadow = true;
+    cemeteryLeftTray.userData = { kind: 'cemetery', side: 'left' };
+    boardGroup.add(cemeteryLeftTray);
+
+    const cemeteryRightTray = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.12, 8.4), cemeteryRightMat);
+    cemeteryRightTray.position.set(5.85, -0.06, 0);
+    cemeteryRightTray.receiveShadow = true;
+    cemeteryRightTray.userData = { kind: 'cemetery', side: 'right' };
+    boardGroup.add(cemeteryRightTray);
+
+    const leftLabelMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.25, 0.42),
+      new THREE.MeshBasicMaterial({
+        map: createLabelTexture('CEMITERIO PRETAS', 'rgba(255,255,255,0.88)', '#1D6FA5'),
+        transparent: true
+      })
+    );
+    leftLabelMesh.rotation.x = -Math.PI / 2;
+    leftLabelMesh.position.set(-5.85, 0.015, 4.48);
+    boardGroup.add(leftLabelMesh);
+
+    const rightLabelMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.25, 0.42),
+      new THREE.MeshBasicMaterial({
+        map: createLabelTexture('CEMITERIO BRANCAS', 'rgba(255,255,255,0.88)', '#C83E7B'),
+        transparent: true
+      })
+    );
+    rightLabelMesh.rotation.x = -Math.PI / 2;
+    rightLabelMesh.position.set(5.85, 0.015, 4.48);
+    boardGroup.add(rightLabelMesh);
+
+    // =========================================================================
+    // ALCAS DE REDIMENSIONAMENTO POR PINCELADA NOS 4 CANTOS
+    // =========================================================================
+    const resizeHandles = [];
+    const cornerCoords = [
+      [-4.55, 0.25, -4.55],
+      [4.55, 0.25, -4.55],
+      [-4.55, 0.25, 4.55],
+      [4.55, 0.25, 4.55]
+    ];
+    const handleSphereGeo = new THREE.SphereGeometry(0.24, 20, 20);
+    const handleRingGeo = new THREE.TorusGeometry(0.36, 0.035, 10, 28);
+
+    cornerCoords.forEach((pos, idx) => {
+      const grp = new THREE.Group();
+      grp.position.set(pos[0], pos[1], pos[2]);
+
+      const orbMat = new THREE.MeshStandardMaterial({
+        color: 0x82C8F3,
+        emissive: 0x1D6FA5,
+        emissiveIntensity: 0.25,
+        roughness: 0.2,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.85
+      });
+      const orb = new THREE.Mesh(handleSphereGeo, orbMat);
+      orb.userData = { kind: 'resizeHandle', index: idx };
+
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xF6B3D0,
+        transparent: true,
+        opacity: 0.72
+      });
+      const ring = new THREE.Mesh(handleRingGeo, ringMat);
+      ring.rotation.x = Math.PI / 2;
+
+      grp.add(orb);
+      grp.add(ring);
+      boardGroup.add(grp);
+      resizeHandles.push({ group: grp, orb, ring, orbMat, ringMat });
+    });
+
+    // =========================================================================
+    // MODELADOR 3D PROCEDURAL DE PECAS STAUNTON
+    // =========================================================================
+    function createWhiteMat() {
+      return new THREE.MeshStandardMaterial({
+        color: 0xFFFDF8,
+        roughness: 0.26,
+        metalness: 0.08,
+        emissive: 0x000000,
+        emissiveIntensity: 0
+      });
+    }
+
+    function createBlackMat() {
+      return new THREE.MeshStandardMaterial({
+        color: 0x1E293B,
+        roughness: 0.28,
+        metalness: 0.24,
+        emissive: 0x000000,
+        emissiveIntensity: 0
+      });
+    }
+
+    function latheFromProfile(points, segments = 24) {
+      const vecs = points.map(([x, y]) => new THREE.Vector2(x, y));
+      return new THREE.LatheGeometry(vecs, segments);
+    }
+
+    function buildPieceMesh(type, color) {
+      const mat = color === 'w' ? createWhiteMat() : createBlackMat();
+      const group = new THREE.Group();
+
+      function addMesh(geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.rotation.set(rx, ry, rz);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        group.add(m);
+        return m;
+      }
+
+      if (type === 'p') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.30, 0], [0.30, 0.08], [0.24, 0.14], [0.14, 0.24],
+          [0.10, 0.48], [0.16, 0.54], [0.11, 0.58], [0, 0.58]
+        ]));
+        addMesh(new THREE.SphereGeometry(0.165, 20, 16), 0, 0.72, 0);
+      } else if (type === 'r') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.33, 0], [0.33, 0.09], [0.27, 0.16], [0.18, 0.26],
+          [0.17, 0.70], [0.24, 0.80], [0.24, 0.94], [0.15, 0.94], [0.15, 0.84], [0, 0.84]
+        ]));
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(0.10, 0.12, 0.08), Math.cos(ang) * 0.20, 1.0, Math.sin(ang) * 0.20, 0, -ang, 0);
+        }
+      } else if (type === 'n') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.33, 0], [0.33, 0.09], [0.27, 0.17], [0.20, 0.28], [0, 0.28]
+        ]));
+        const dir = color === 'w' ? -1 : 1;
+        addMesh(new THREE.CylinderGeometry(0.13, 0.21, 0.48, 16), 0, 0.48, -dir * 0.02, dir * 0.22, 0, 0);
+        addMesh(new THREE.BoxGeometry(0.20, 0.28, 0.34), 0, 0.78, dir * 0.09, dir * 0.36, 0, 0);
+        addMesh(new THREE.BoxGeometry(0.14, 0.17, 0.24), 0, 0.75, dir * 0.26, dir * 0.65, 0, 0);
+        addMesh(new THREE.ConeGeometry(0.055, 0.16, 10), -0.075, 0.97, dir * 0.02);
+        addMesh(new THREE.ConeGeometry(0.055, 0.16, 10), 0.075, 0.97, dir * 0.02);
+      } else if (type === 'b') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.32, 0], [0.32, 0.09], [0.26, 0.16], [0.15, 0.28],
+          [0.11, 0.66], [0.19, 0.73], [0.13, 0.77], [0.18, 0.90],
+          [0.14, 1.04], [0.06, 1.14], [0, 1.16]
+        ]));
+        addMesh(new THREE.SphereGeometry(0.065, 14, 14), 0, 1.21, 0);
+      } else if (type === 'q') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.36, 0], [0.36, 0.10], [0.29, 0.18], [0.17, 0.34],
+          [0.12, 0.80], [0.21, 0.88], [0.15, 0.93], [0.24, 1.15], [0.14, 1.18], [0, 1.18]
+        ]));
+        addMesh(new THREE.SphereGeometry(0.14, 18, 16), 0, 1.24, 0);
+        addMesh(new THREE.SphereGeometry(0.055, 12, 12), 0, 1.40, 0);
+        for (let i = 0; i < 8; i++) {
+          const ang = (i / 8) * Math.PI * 2;
+          addMesh(new THREE.SphereGeometry(0.036, 10, 10), Math.cos(ang) * 0.21, 1.20, Math.sin(ang) * 0.21);
+        }
+      } else if (type === 'k') {
+        addMesh(latheFromProfile([
+          [0, 0], [0.38, 0], [0.38, 0.11], [0.31, 0.19], [0.18, 0.36],
+          [0.13, 0.86], [0.22, 0.95], [0.16, 1.00], [0.24, 1.24], [0.18, 1.32], [0, 1.34]
+        ]));
+        addMesh(new THREE.BoxGeometry(0.075, 0.26, 0.075), 0, 1.47, 0);
+        addMesh(new THREE.BoxGeometry(0.20, 0.075, 0.075), 0, 1.50, 0);
+      }
+
+      // Colisor invisivel amplo para facilitar pincelada
+      const hitMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 1.45, 12),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      hitMesh.position.y = 0.72;
+      group.add(hitMesh);
+
+      return { group, mat, hitMesh };
+    }
+
+    // =========================================================================
+    // 4. LOGICA COMPLETA DO XADREZ + CEMITERIO + IA MINIMAX
+    // =========================================================================
+    const pieces = [];
+    const pieceHitMeshes = [];
+    let grid = [];
+
+    function createEmptyGrid() {
+      return Array.from({ length: 8 }, () => Array(8).fill(null));
+    }
+
+    function clearAllPieces() {
+      while (pieces.length > 0) {
+        const p = pieces.pop();
+        boardGroup.remove(p.mesh);
+      }
+      pieceHitMeshes.length = 0;
+      appState.cemeteryW = [];
+      appState.cemeteryB = [];
+    }
+
+    function spawnPiece(type, color, row, col) {
+      const built = buildPieceMesh(type, color);
+      const piece = {
+        id: `${color}_${type}_${row}_${col}_${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        color,
+        row,
+        col,
+        hasMoved: false,
+        inCemetery: false,
+        mesh: built.group,
+        mat: built.mat,
+        hitMesh: built.hitMesh,
+        targetPos: new THREE.Vector3(col - 3.5, 0.03, row - 3.5),
+        targetScale: 1.0
+      };
+      built.hitMesh.userData = { kind: 'piece', piece };
+      built.group.position.copy(piece.targetPos);
+      boardGroup.add(built.group);
+      pieces.push(piece);
+      pieceHitMeshes.push(built.hitMesh);
+      grid[row][col] = piece;
+      return piece;
+    }
+
+    function promotePieceToQueen(piece) {
+      piece.type = 'q';
+      const oldPos = piece.mesh.position.clone();
+      const hitIdx = pieceHitMeshes.indexOf(piece.hitMesh);
+      if (hitIdx >= 0) pieceHitMeshes.splice(hitIdx, 1);
+      boardGroup.remove(piece.mesh);
+
+      const built = buildPieceMesh('q', piece.color);
+      piece.mesh = built.group;
+      piece.mat = built.mat;
+      piece.hitMesh = built.hitMesh;
+      built.hitMesh.userData = { kind: 'piece', piece };
+      built.group.position.copy(oldPos);
+      boardGroup.add(built.group);
+      pieceHitMeshes.push(built.hitMesh);
+    }
+
+    function setupBoard() {
+      clearAllPieces();
+      grid = createEmptyGrid();
+      const backRank = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
+      for (let c = 0; c < 8; c++) {
+        spawnPiece(backRank[c], 'b', 0, c);
+        spawnPiece('p', 'b', 1, c);
+        spawnPiece('p', 'w', 6, c);
+        spawnPiece(backRank[c], 'w', 7, c);
+      }
+      appState.turn = 'w';
+      appState.gameOver = false;
+      appState.inCheck = false;
+      appState.aiThinking = false;
+      appState.lastMove = null;
+      appState.heldPiece = null;
+      appState.legalMovesForHeld = [];
+      clearHighlights();
+      updateTurnHUD();
+      updateCemeteryHUD();
+    }
+
+    function cloneStateGrid(src) {
+      return src.map(row => row.map(p => p ? { type: p.type, color: p.color, hasMoved: p.hasMoved } : null));
+    }
+
+    function inBounds(r, c) {
+      return r >= 0 && r < 8 && c >= 0 && c < 8;
+    }
+
+    function getPseudoMoves(st, r, c, ignoreCastling = false) {
+      const p = st[r][c];
+      if (!p) return [];
+      const moves = [];
+      const opp = p.color === 'w' ? 'b' : 'w';
+
+      if (p.type === 'p') {
+        const dir = p.color === 'w' ? -1 : 1;
+        const startRow = p.color === 'w' ? 6 : 1;
+        if (inBounds(r + dir, c) && !st[r + dir][c]) {
+          moves.push({ r: r + dir, c });
+          if (r === startRow && !st[r + 2 * dir][c]) {
+            moves.push({ r: r + 2 * dir, c });
+          }
+        }
+        for (const dc of [-1, 1]) {
+          const nr = r + dir;
+          const nc = c + dc;
+          if (inBounds(nr, nc) && st[nr][nc] && st[nr][nc].color === opp) {
+            moves.push({ r: nr, c: nc, capture: true });
+          }
+        }
+      } else if (p.type === 'n') {
+        const jumps = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+        for (const [dr, dc] of jumps) {
+          const nr = r + dr, nc = c + dc;
+          if (inBounds(nr, nc) && (!st[nr][nc] || st[nr][nc].color === opp)) {
+            moves.push({ r: nr, c: nc, capture: !!st[nr][nc] });
+          }
+        }
+      } else if (p.type === 'b' || p.type === 'r' || p.type === 'q') {
+        const dirs = [];
+        if (p.type === 'b' || p.type === 'q') dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
+        if (p.type === 'r' || p.type === 'q') dirs.push([-1,0],[1,0],[0,-1],[0,1]);
+        for (const [dr, dc] of dirs) {
+          let nr = r + dr, nc = c + dc;
+          while (inBounds(nr, nc)) {
+            if (!st[nr][nc]) {
+              moves.push({ r: nr, c: nc });
+            } else {
+              if (st[nr][nc].color === opp) moves.push({ r: nr, c: nc, capture: true });
+              break;
+            }
+            nr += dr;
+            nc += dc;
+          }
+        }
+      } else if (p.type === 'k') {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = r + dr, nc = c + dc;
+            if (inBounds(nr, nc) && (!st[nr][nc] || st[nr][nc].color === opp)) {
+              moves.push({ r: nr, c: nc, capture: !!st[nr][nc] });
+            }
+          }
+        }
+        if (!ignoreCastling && !p.hasMoved && !isSquareAttacked(st, r, c, opp)) {
+          if (st[r][7] && st[r][7].type === 'r' && !st[r][7].hasMoved && !st[r][5] && !st[r][6]) {
+            if (!isSquareAttacked(st, r, 5, opp) && !isSquareAttacked(st, r, 6, opp)) {
+              moves.push({ r, c: 6, castle: 'king' });
+            }
+          }
+          if (st[r][0] && st[r][0].type === 'r' && !st[r][0].hasMoved && !st[r][1] && !st[r][2] && !st[r][3]) {
+            if (!isSquareAttacked(st, r, 3, opp) && !isSquareAttacked(st, r, 2, opp)) {
+              moves.push({ r, c: 2, castle: 'queen' });
+            }
+          }
+        }
+      }
+      return moves;
+    }
+
+    function isSquareAttacked(st, targetR, targetC, byColor) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = st[r][c];
+          if (!p || p.color !== byColor) continue;
+          if (p.type === 'p') {
+            const dir = byColor === 'w' ? -1 : 1;
+            if (r + dir === targetR && (c - 1 === targetC || c + 1 === targetC)) return true;
+          } else {
+            const pseudo = getPseudoMoves(st, r, c, true);
+            for (const m of pseudo) {
+              if (m.r === targetR && m.c === targetC) return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function findKing(st, color) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (st[r][c] && st[r][c].color === color && st[r][c].type === 'k') {
+            return { r, c };
+          }
+        }
+      }
+      return null;
+    }
+
+    function applyMoveOnState(st, fr, fc, tr, tc, castle) {
+      const next = cloneStateGrid(st);
+      const moving = next[fr][fc];
+      next[tr][tc] = moving;
+      next[fr][fc] = null;
+      if (moving) moving.hasMoved = true;
+      if (moving && moving.type === 'p' && (tr === 0 || tr === 7)) {
+        moving.type = 'q';
+      }
+      if (castle === 'king') {
+        next[tr][5] = next[tr][7];
+        next[tr][7] = null;
+        if (next[tr][5]) next[tr][5].hasMoved = true;
+      } else if (castle === 'queen') {
+        next[tr][3] = next[tr][0];
+        next[tr][0] = null;
+        if (next[tr][3]) next[tr][3].hasMoved = true;
+      }
+      return next;
+    }
+
+    function getLegalMoves(st, r, c) {
+      const p = st[r][c];
+      if (!p) return [];
+      const opp = p.color === 'w' ? 'b' : 'w';
+      const pseudo = getPseudoMoves(st, r, c, false);
+      return pseudo.filter(m => {
+        const next = applyMoveOnState(st, r, c, m.r, m.c, m.castle);
+        const king = findKing(next, p.color);
+        return !king || !isSquareAttacked(next, king.r, king.c, opp);
+      });
+    }
+
+    function getAllLegalMoves(st, color) {
+      const all = [];
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (st[r][c] && st[r][c].color === color) {
+            const list = getLegalMoves(st, r, c);
+            for (const m of list) {
+              all.push({ fr: r, fc: c, tr: m.r, tc: m.c, castle: m.castle, capture: m.capture });
+            }
+          }
+        }
+      }
+      return all;
+    }
+
+    function layoutCemeterySlot(piece) {
+      const arr = piece.color === 'b' ? appState.cemeteryB : appState.cemeteryW;
+      if (!arr.includes(piece)) arr.push(piece);
+      const idx = arr.indexOf(piece);
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const baseX = piece.color === 'b' ? -6.32 : 5.38;
+      const x = baseX + col * 0.94;
+      const z = -3.35 + row * 0.96;
+      piece.inCemetery = true;
+      piece.row = -1;
+      piece.col = -1;
+      piece.targetScale = 0.72;
+      piece.targetPos.set(x, 0.02, z);
+    }
+
+    function sendPieceToCemetery(piece) {
+      if (!piece || piece.inCemetery) return;
+      if (piece.row >= 0 && piece.col >= 0 && grid[piece.row]?.[piece.col] === piece) {
+        grid[piece.row][piece.col] = null;
+      }
+      layoutCemeterySlot(piece);
+      SoundFX.pieceCapture();
+      updateCemeteryHUD();
+    }
+
+    function executeBoardMove(piece, targetRow, targetCol, moveInfo) {
+      const fr = piece.row;
+      const fc = piece.col;
+      const captured = grid[targetRow][targetCol];
+
+      if (fr >= 0 && fc >= 0) {
+        grid[fr][fc] = null;
+      }
+      if (captured && captured !== piece) {
+        sendPieceToCemetery(captured);
+      } else {
+        SoundFX.piecePlace();
+      }
+
+      grid[targetRow][targetCol] = piece;
+      piece.row = targetRow;
+      piece.col = targetCol;
+      piece.hasMoved = true;
+      piece.targetScale = 1.0;
+      piece.targetPos.set(targetCol - 3.5, 0.03, targetRow - 3.5);
+
+      if (piece.type === 'p' && (targetRow === 0 || targetRow === 7)) {
+        promotePieceToQueen(piece);
+      }
+
+      if (moveInfo && moveInfo.castle === 'king') {
+        const rook = grid[targetRow][7];
+        if (rook) {
+          grid[targetRow][7] = null;
+          grid[targetRow][5] = rook;
+          rook.col = 5;
+          rook.hasMoved = true;
+          rook.targetPos.set(5 - 3.5, 0.03, targetRow - 3.5);
+        }
+      } else if (moveInfo && moveInfo.castle === 'queen') {
+        const rook = grid[targetRow][0];
+        if (rook) {
+          grid[targetRow][0] = null;
+          grid[targetRow][3] = rook;
+          rook.col = 3;
+          rook.hasMoved = true;
+          rook.targetPos.set(3 - 3.5, 0.03, targetRow - 3.5);
+        }
+      }
+
+      appState.lastMove = { fr, fc, tr: targetRow, tc: targetCol };
+      appState.turn = appState.turn === 'w' ? 'b' : 'w';
+      evaluateGameStatus();
+      updateTurnHUD();
+      clearHighlights();
+
+      if (!appState.gameOver && appState.playMode === 'ai' && appState.turn === 'b') {
+        appState.aiThinking = true;
+        updateTurnHUD();
+        setTimeout(runAiTurn, 520);
+      }
+    }
+
+    function evaluateGameStatus() {
+      const st = cloneStateGrid(grid);
+      const color = appState.turn;
+      const opp = color === 'w' ? 'b' : 'w';
+      const king = findKing(st, color);
+      appState.inCheck = king ? isSquareAttacked(st, king.r, king.c, opp) : false;
+      const allMoves = getAllLegalMoves(st, color);
+      if (allMoves.length === 0) {
+        appState.gameOver = true;
+        SoundFX.victoryFanfare();
+      } else if (appState.inCheck) {
+        SoundFX.checkAlert();
+      }
+    }
+
+    // IA Minimax leve e rapida
+    const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+    const CENTER_BONUS = [
+      [0, 0, 0, 0, 0, 0, 0, 0],
+      [4, 6, 8, 8, 8, 8, 6, 4],
+      [4, 8, 14, 18, 18, 14, 8, 4],
+      [4, 10, 18, 24, 24, 18, 10, 4],
+      [4, 10, 18, 24, 24, 18, 10, 4],
+      [4, 8, 14, 18, 18, 14, 8, 4],
+      [4, 6, 8, 8, 8, 8, 6, 4],
+      [0, 0, 0, 0, 0, 0, 0, 0]
+    ];
+
+    function evaluateBoard(st) {
+      let score = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = st[r][c];
+          if (!p) continue;
+          const val = PIECE_VALUES[p.type] + CENTER_BONUS[r][c];
+          score += p.color === 'b' ? val : -val;
+        }
+      }
+      return score;
+    }
+
+    function minimax(st, depth, alpha, beta, maximizingBlack) {
+      if (depth === 0) return { score: evaluateBoard(st) };
+      const color = maximizingBlack ? 'b' : 'w';
+      const moves = getAllLegalMoves(st, color);
+      if (moves.length === 0) {
+        const opp = maximizingBlack ? 'w' : 'b';
+        const king = findKing(st, color);
+        if (king && isSquareAttacked(st, king.r, king.c, opp)) {
+          return { score: maximizingBlack ? -99999 - depth : 99999 + depth };
+        }
+        return { score: 0 };
+      }
+
+      moves.sort((a, b) => (b.capture ? 1 : 0) - (a.capture ? 1 : 0));
+      let bestMove = moves[0];
+
+      if (maximizingBlack) {
+        let maxEval = -Infinity;
+        for (const m of moves) {
+          const next = applyMoveOnState(st, m.fr, m.fc, m.tr, m.tc, m.castle);
+          const ev = minimax(next, depth - 1, alpha, beta, false).score;
+          if (ev > maxEval) {
+            maxEval = ev;
+            bestMove = m;
+          }
+          alpha = Math.max(alpha, ev);
+          if (beta <= alpha) break;
+        }
+        return { score: maxEval, move: bestMove };
+      } else {
+        let minEval = Infinity;
+        for (const m of moves) {
+          const next = applyMoveOnState(st, m.fr, m.fc, m.tr, m.tc, m.castle);
+          const ev = minimax(next, depth - 1, alpha, beta, true).score;
+          if (ev < minEval) {
+            minEval = ev;
+            bestMove = m;
+          }
+          beta = Math.min(beta, ev);
+          if (beta <= alpha) break;
+        }
+        return { score: minEval, move: bestMove };
+      }
+    }
+
+    function runAiTurn() {
+      appState.aiThinking = false;
+      if (appState.gameOver || appState.playMode !== 'ai' || appState.turn !== 'b') {
+        updateTurnHUD();
+        return;
+      }
+      const st = cloneStateGrid(grid);
+      const res = minimax(st, 2, -Infinity, Infinity, true);
+      if (res.move) {
+        const piece = grid[res.move.fr][res.move.fc];
+        if (piece) {
+          piece.mesh.position.y = 0.85;
+          executeBoardMove(piece, res.move.tr, res.move.tc, res.move);
+        }
+      }
+    }
+
+    // =========================================================================
+    // 5. DESTAQUES VISUAIS NO TABULEIRO E HUD
+    // =========================================================================
+    function clearHighlights() {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const ov = tileOverlayMeshes[r][c];
+          ov.material.opacity = 0;
+        }
+      }
+      if (appState.lastMove) {
+        tileOverlayMeshes[appState.lastMove.fr][appState.lastMove.fc].material.color.setHex(0xFFF59D);
+        tileOverlayMeshes[appState.lastMove.fr][appState.lastMove.fc].material.opacity = 0.25;
+        tileOverlayMeshes[appState.lastMove.tr][appState.lastMove.tc].material.color.setHex(0xFFF59D);
+        tileOverlayMeshes[appState.lastMove.tr][appState.lastMove.tc].material.opacity = 0.28;
+      }
+    }
+
+    function highlightMovesForPiece(piece, legalMoves) {
+      clearHighlights();
+      if (piece.row >= 0 && piece.col >= 0) {
+        const cur = tileOverlayMeshes[piece.row][piece.col];
+        cur.material.color.setHex(0xC83E7B);
+        cur.material.opacity = 0.42;
+      }
+      for (const m of legalMoves) {
+        const ov = tileOverlayMeshes[m.r][m.c];
+        ov.material.color.setHex(m.capture ? 0xE11D48 : 0x2E7D32);
+        ov.material.opacity = m.capture ? 0.50 : 0.36;
+      }
+    }
+
+    function updateTurnHUD() {
+      turnDotEl.classList.toggle('black', appState.turn === 'b');
+      if (appState.gameOver) {
+        if (appState.inCheck) {
+          turnLabelEl.textContent = appState.turn === 'w' ? 'Xeque Mate das Pretas' : 'Xeque Mate das Brancas';
+        } else {
+          turnLabelEl.textContent = 'Empate por Afogamento';
+        }
+      } else if (appState.aiThinking) {
+        turnLabelEl.textContent = 'IA Pensando...';
+      } else if (appState.inCheck) {
+        turnLabelEl.textContent = appState.turn === 'w' ? 'Xeque nas Brancas' : 'Xeque nas Pretas';
+      } else {
+        turnLabelEl.textContent = appState.turn === 'w' ? 'Vez das Brancas' : 'Vez das Pretas';
+      }
+    }
+
+    function updateCemeteryHUD() {
+      scoreValEl.textContent = `B ${appState.cemeteryW.length} | P ${appState.cemeteryB.length}`;
+    }
+
+    function setBoardMode(mode, fromAutoDetect = false) {
+      appState.boardMode = mode;
+      const isReal = mode === 'real';
+
+      boardBaseMesh.visible = !isReal;
+      realShadowPlane.visible = isReal;
+      lightTileMat.opacity = isReal ? 0.14 : 0.94;
+      darkTileMat.opacity = isReal ? 0.24 : 0.92;
+
+      if (isReal) {
+        btnVirtualMode.classList.remove('active-blue');
+        btnRealMode.classList.add('active-green');
+        realBoardDot.classList.add('locked');
+        realModeText.textContent = fromAutoDetect ? 'Tabuleiro Real Detectado' : 'Modo Tabuleiro Real';
+      } else {
+        btnVirtualMode.classList.add('active-blue');
+        btnRealMode.classList.remove('active-green');
+        realBoardDot.classList.remove('locked');
+        realModeText.textContent = appState.autoSearchReal ? 'Procurando Tabuleiro Real' : 'Buscar Tabuleiro Real';
+      }
+    }
+
+    function updateScaleUI() {
+      const pct = Math.round(appState.targetBoardScale * 100);
+      scaleBadge.textContent = `Escala ${pct}%`;
+    }
+
+    // =========================================================================
+    // 6. MOTOR DE INTERACAO UNIFICADO (PINCELADA E PONTEIRO)
+    // =========================================================================
+    const raycaster = new THREE.Raycaster();
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.9);
+    const boardGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    function screenToNdc(sx, sy) {
+      return new THREE.Vector2(
+        (sx / window.innerWidth) * 2 - 1,
+        -(sy / window.innerHeight) * 2 + 1
+      );
+    }
+
+    function worldToBoardLocal(worldPt) {
+      return boardGroup.worldToLocal(worldPt.clone());
+    }
+
+    function raycastBoardGround(sx, sy) {
+      raycaster.setFromCamera(screenToNdc(sx, sy), camera);
+      const hit = new THREE.Vector3();
+      const ok = raycaster.ray.intersectPlane(boardGroundPlane, hit);
+      return ok ? hit : null;
+    }
+
+    function raycastDragPlane(sx, sy) {
+      raycaster.setFromCamera(screenToNdc(sx, sy), camera);
+      const hit = new THREE.Vector3();
+      const ok = raycaster.ray.intersectPlane(dragPlane, hit);
+      return ok ? hit : null;
+    }
+
+    function findCornerHandleNear(sx, sy) {
+      const ndc = screenToNdc(sx, sy);
+      raycaster.setFromCamera(ndc, camera);
+      const handleMeshes = resizeHandles.map(h => h.orb);
+      const hits = raycaster.intersectObjects(handleMeshes, false);
+      if (hits.length > 0) return hits[0];
+
+      const groundWorld = raycastBoardGround(sx, sy);
+      if (!groundWorld) return null;
+      const local = worldToBoardLocal(groundWorld);
+      for (let i = 0; i < cornerCoords.length; i++) {
+        const [cx, , cz] = cornerCoords[i];
+        if (Math.hypot(local.x - cx, local.z - cz) < 1.15) {
+          return { object: resizeHandles[i].orb, point: groundWorld };
+        }
+      }
+      return null;
+    }
+
+    function findPieceNear(sx, sy) {
+      raycaster.setFromCamera(screenToNdc(sx, sy), camera);
+      const hits = raycaster.intersectObjects(pieceHitMeshes, false);
+      if (hits.length > 0) {
+        return hits[0].object.userData.piece;
+      }
+      // Tolerancia generosa sobre a casa ocupada pela peca
+      const groundWorld = raycastBoardGround(sx, sy);
+      if (!groundWorld) return null;
+      const local = worldToBoardLocal(groundWorld);
+      const col = Math.round(local.x + 3.5);
+      const row = Math.round(local.z + 3.5);
+      if (inBounds(row, col) && grid[row][col]) {
+        return grid[row][col];
+      }
+      return null;
+    }
+
+    function canSelectPiece(piece) {
+      if (!piece || piece.inCemetery) return false;
+      if (appState.playMode === 'free') return true;
+      // No modo IA: jogador controla brancas nas jogadas normais, e tambem pode pegar qualquer peca para colocar no cemiterio lateral
+      return true;
+    }
+
+    function startPinchAction(sx, sy, isHandPinch = true) {
+      SoundFX.unlock();
+
+      // Verifica se a pincelada foi feita sobre algum botao da HUD (controle 100% sem maos no mouse!)
+      if (isHandPinch) {
+        const el = document.elementFromPoint(sx, sy);
+        const btn = el && el.closest ? el.closest('button') : null;
+        if (btn) {
+          const now = performance.now();
+          if (now - appState.lastPinchBtnTime > 650) {
+            appState.lastPinchBtnTime = now;
+            SoundFX.pinchGrab();
+            btn.click();
+          }
+          return true;
+        }
+      }
+
+      if (appState.heldPiece || appState.resizeDrag) return false;
+
+      // 1) Redimensionamento por pincelada nos cantos ou modo Redimensionar ativo
+      const cornerHit = findCornerHandleNear(sx, sy);
+      if (appState.forceResizeMode || cornerHit) {
+        const ground = raycastBoardGround(sx, sy);
+        if (ground) {
+          const distFromCenter = Math.hypot(ground.x - boardGroup.position.x, ground.z - boardGroup.position.z);
+          appState.resizeDrag = {
+            startDist: Math.max(distFromCenter, 0.8),
+            startScale: appState.targetBoardScale
+          };
+          SoundFX.pinchGrab();
+          return true;
+        }
+      }
+
+      // 2) Segurar peca do tabuleiro
+      const piece = findPieceNear(sx, sy);
+      if (piece && canSelectPiece(piece)) {
+        appState.heldPiece = piece;
+        appState.legalMovesForHeld = (appState.playMode === 'free' || piece.color === appState.turn)
+          ? getLegalMoves(cloneStateGrid(grid), piece.row, piece.col)
+          : [];
+        highlightMovesForPiece(piece, appState.legalMovesForHeld);
+        SoundFX.pinchGrab();
+        return true;
+      }
+
+      return false;
+    }
+
+    function movePinchAction(sx, sy) {
+      if (appState.resizeDrag) {
+        const ground = raycastBoardGround(sx, sy);
+        if (ground) {
+          const dist = Math.hypot(ground.x - boardGroup.position.x, ground.z - boardGroup.position.z);
+          const ratio = dist / appState.resizeDrag.startDist;
+          appState.targetBoardScale = Math.min(2.25, Math.max(0.45, appState.resizeDrag.startScale * ratio));
+          updateScaleUI();
+          SoundFX.boardResize(appState.targetBoardScale);
+        }
+        return;
+      }
+
+      if (appState.heldPiece) {
+        const dragWorld = raycastDragPlane(sx, sy);
+        if (dragWorld) {
+          const local = worldToBoardLocal(dragWorld);
+          appState.heldPiece.targetPos.set(local.x, 1.25, local.z);
+        }
+      }
+    }
+
+    function endPinchAction(sx, sy) {
+      if (appState.resizeDrag) {
+        appState.resizeDrag = null;
+        return;
+      }
+
+      const piece = appState.heldPiece;
+      if (!piece) return;
+
+      const dragWorld = raycastDragPlane(sx, sy) || raycastBoardGround(sx, sy);
+      const local = dragWorld ? worldToBoardLocal(dragWorld) : piece.targetPos.clone();
+
+      // Verifica se soltou no cemiterio lateral (lado esquerdo ou direito ao lado do tabuleiro)
+      const inSideCemetery = Math.abs(local.x) >= 4.20 && Math.abs(local.z) <= 4.75;
+      if (inSideCemetery) {
+        sendPieceToCemetery(piece);
+        appState.heldPiece = null;
+        appState.legalMovesForHeld = [];
+        clearHighlights();
+        return;
+      }
+
+      // Verifica casa alvo no tabuleiro 8x8
+      const targetCol = Math.round(local.x + 3.5);
+      const targetRow = Math.round(local.z + 3.5);
+
+      if (inBounds(targetRow, targetCol) && (targetRow !== piece.row || targetCol !== piece.col)) {
+        if (appState.playMode === 'free') {
+          const legalMatch = appState.legalMovesForHeld.find(m => m.r === targetRow && m.c === targetCol);
+          executeBoardMove(piece, targetRow, targetCol, legalMatch);
+          appState.heldPiece = null;
+          appState.legalMovesForHeld = [];
+          return;
+        }
+
+        // No modo IA, somente movimentos legais das Brancas no turno das Brancas avancam o jogo
+        if (!appState.gameOver && !appState.aiThinking && piece.color === 'w' && appState.turn === 'w') {
+          const legalMatch = appState.legalMovesForHeld.find(m => m.r === targetRow && m.c === targetCol);
+          if (legalMatch) {
+            executeBoardMove(piece, targetRow, targetCol, legalMatch);
+            appState.heldPiece = null;
+            appState.legalMovesForHeld = [];
+            return;
+          }
+        }
+      }
+
+      // Retorna suavemente a casa original se soltou fora de casa valida
+      piece.targetPos.set(piece.col - 3.5, 0.03, piece.row - 3.5);
+      appState.heldPiece = null;
+      appState.legalMovesForHeld = [];
+      clearHighlights();
+    }
+
+    // Fallback para mouse e touch direto no canvas 3D
+    let pointerDownActive = false;
+    threeCanvas.addEventListener('pointerdown', (e) => {
+      pointerDownActive = true;
+      startPinchAction(e.clientX, e.clientY, false);
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (pointerDownActive) {
+        movePinchAction(e.clientX, e.clientY);
+      }
+    });
+    window.addEventListener('pointerup', (e) => {
+      if (pointerDownActive) {
+        pointerDownActive = false;
+        endPinchAction(e.clientX, e.clientY);
+      }
+    });
+    threeCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.08 : 0.08;
+      appState.targetBoardScale = Math.min(2.25, Math.max(0.45, appState.targetBoardScale + delta));
+      updateScaleUI();
+      SoundFX.boardResize(appState.targetBoardScale);
+    }, { passive: false });
+
+    // =========================================================================
+    // 7. DETECTOR DE TABULEIRO REAL POR VISAO COMPUTACIONAL (Saddle X-Corners)
+    // =========================================================================
+    const cvCanvas = document.createElement('canvas');
+    cvCanvas.width = 160;
+    cvCanvas.height = 120;
+    const cvCtx = cvCanvas.getContext('2d', { willReadFrequently: true });
+    let lastCvScan = 0;
+    let consecutiveBoardHits = 0;
+
+    function scanForPhysicalChessboard() {
+      if (!appState.videoReady || videoEl.videoWidth === 0) return;
+      if (!appState.autoSearchReal && appState.boardMode !== 'real') return;
+
+      const W = 160, H = 120;
+      cvCtx.drawImage(videoEl, 0, 0, W, H);
+      const data = cvCtx.getImageData(0, 0, W, H).data;
+      const gray = new Uint8Array(W * H);
+      for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+      }
+
+      const corners = [];
+      const r = 3;
+      const threshold = 32;
+
+      for (let y = r + 2; y < H - r - 2; y += 2) {
+        for (let x = r + 2; x < W - r - 2; x += 2) {
+          const tl = gray[(y - r) * W + (x - r)];
+          const tr = gray[(y - r) * W + (x + r)];
+          const bl = gray[(y + r) * W + (x - r)];
+          const br = gray[(y + r) * W + (x + r)];
+
+          const diagDiff = ((tl + br) * 0.5) - ((tr + bl) * 0.5);
+          const absD = Math.abs(diagDiff);
+          if (absD < threshold) continue;
+
+          // Exige simetria de quadrantes opostos (padrao X-corner de xadrez)
+          if (Math.abs(tl - br) < absD * 0.45 && Math.abs(tr - bl) < absD * 0.45) {
+            corners.push({ x, y, sign: diagDiff > 0 ? 1 : -1, strength: absD });
+          }
+        }
+      }
+
+      // Non-maximum suppression simples em celulas 8x8
+      const filtered = [];
+      for (const c of corners) {
+        let tooClose = false;
+        for (const f of filtered) {
+          if (Math.abs(f.x - c.x) < 7 && Math.abs(f.y - c.y) < 7) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) filtered.push(c);
+      }
+
+      // Verifica cluster denso e balanceado entre sinais positivos e negativos
+      if (filtered.length >= 16) {
+        let posCount = 0;
+        let negCount = 0;
+        let sumX = 0, sumY = 0;
+        let minX = W, maxX = 0, minY = H, maxY = 0;
+
+        for (const c of filtered) {
+          if (c.sign > 0) posCount++;
+          else negCount++;
+          sumX += c.x;
+          sumY += c.y;
+          if (c.x < minX) minX = c.x;
+          if (c.x > maxX) maxX = c.x;
+          if (c.y < minY) minY = c.y;
+          if (c.y > maxY) maxY = c.y;
+        }
+
+        const spanW = maxX - minX;
+        const spanH = maxY - minY;
+        const balanced = posCount >= 5 && negCount >= 5;
+        const validSpan = spanW >= 32 && spanH >= 26 && spanW <= 145 && spanH <= 110;
+
+        if (balanced && validSpan) {
+          consecutiveBoardHits++;
+          if (consecutiveBoardHits >= 3) {
+            const normCx = (sumX / filtered.length) / W;
+            const normCy = (sumY / filtered.length) / H;
+            const mappedCx = appState.mirrorVideo ? (1 - normCx) : normCx;
+            const estScale = Math.min(1.55, Math.max(0.65, (spanW / W) * 1.45));
+
+            if (!appState.realBoardFound) {
+              appState.realBoardFound = true;
+              setBoardMode('real', true);
+              SoundFX.boardDetected();
+            }
+
+            if (appState.boardMode === 'real' && !appState.resizeDrag && !appState.dualPinch) {
+              appState.targetBoardPos.set((mappedCx - 0.5) * 4.2, 0, (normCy - 0.5) * 2.6);
+              appState.targetBoardScale = estScale;
+              updateScaleUI();
+            }
+          }
+          return;
+        }
+      }
+
+      consecutiveBoardHits = Math.max(0, consecutiveBoardHits - 1);
+    }
+
+    // =========================================================================
+    // 8. MEDIAPIPE HANDS + MAO VISIVEL NA FRENTE DO TABULEIRO + PINCELADA
+    // =========================================================================
+    const handTrackers = [
+      { isPinching: false, sx: 0, sy: 0, initialized: false, lmScreen: null, pinchRatio: 1 },
+      { isPinching: false, sx: 0, sy: 0, initialized: false, lmScreen: null, pinchRatio: 1 }
+    ];
+    let latestLandmarks = [];
+    let isProcessingHand = false;
+    let mpHands = null;
+
+    function videoToScreen(nx, ny) {
+      const sw = window.innerWidth;
+      const sh = window.innerHeight;
+      const vw = videoEl.videoWidth || 1280;
+      const vh = videoEl.videoHeight || 720;
+      const scale = Math.max(sw / vw, sh / vh);
+      const dw = vw * scale;
+      const dh = vh * scale;
+      const ox = (sw - dw) * 0.5;
+      const oy = (sh - dh) * 0.5;
+      const px = appState.mirrorVideo ? ox + (1 - nx) * dw : ox + nx * dw;
+      const py = oy + ny * dh;
+      return { x: px, y: py };
+    }
+
+    function clearHoveredHudButtons() {
+      document.querySelectorAll('.neo-btn.pinch-hover').forEach(b => b.classList.remove('pinch-hover'));
+    }
+
+    function onHandResults(results) {
+      isProcessingHand = false;
+      latestLandmarks = results.multiHandLandmarks || [];
+      clearHoveredHudButtons();
+
+      if (latestLandmarks.length === 0) {
+        handTrackers.forEach((ht, idx) => {
+          if (ht.isPinching) {
+            ht.isPinching = false;
+            if (idx === 0) endPinchAction(ht.sx, ht.sy);
+          }
+          ht.initialized = false;
+          ht.lmScreen = null;
+        });
+        appState.dualPinch = null;
+        handBadge.className = 'hand-badge';
+        handDot.classList.remove('locked');
+        handBadgeText.textContent = 'Mostre a mao na frente do tabuleiro';
+        return;
+      }
+
+      const activePinchHands = [];
+
+      for (let i = 0; i < Math.min(2, latestLandmarks.length); i++) {
+        const lm = latestLandmarks[i];
+        const pts = lm.map(p => videoToScreen(p.x, p.y));
+        const ht = handTrackers[i];
+        ht.lmScreen = pts;
+
+        const palmPx = Math.hypot(pts[0].x - pts[9].x, pts[0].y - pts[9].y);
+        const pinchPx = Math.hypot(pts[4].x - pts[8].x, pts[4].y - pts[8].y);
+        const ratio = pinchPx / Math.max(palmPx, 28);
+        ht.pinchRatio = ratio;
+
+        const rawX = (pts[4].x + pts[8].x) * 0.5;
+        const rawY = (pts[4].y + pts[8].y) * 0.5;
+        if (!ht.initialized) {
+          ht.sx = rawX;
+          ht.sy = rawY;
+          ht.initialized = true;
+        } else {
+          ht.sx += (rawX - ht.sx) * 0.42;
+          ht.sy += (rawY - ht.sy) * 0.42;
+        }
+
+        // Histerese para pincelada estavel sem trepidacao
+        const wasPinching = ht.isPinching;
+        if (!wasPinching && (ratio < 0.44 || pinchPx < 28)) {
+          ht.isPinching = true;
+          if (i === 0) startPinchAction(ht.sx, ht.sy, true);
+        } else if (wasPinching && ratio > 0.58 && pinchPx > 36) {
+          ht.isPinching = false;
+          if (i === 0) endPinchAction(ht.sx, ht.sy);
+        }
+
+        if (ht.isPinching) {
+          activePinchHands.push(ht);
+        }
+
+        // Destaque de botao sob o cursor da mao principal
+        if (i === 0) {
+          const el = document.elementFromPoint(ht.sx, ht.sy);
+          const btn = el && el.closest ? el.closest('button') : null;
+          if (btn) btn.classList.add('pinch-hover');
+        }
+      }
+
+      // Desliga segundo tracker se apenas 1 mao estiver visivel
+      if (latestLandmarks.length < 2) {
+        handTrackers[1].isPinching = false;
+        handTrackers[1].lmScreen = null;
+        handTrackers[1].initialized = false;
+      }
+
+      // Redimensionamento por Pincelada Dupla (duas maos pincando juntas)
+      if (activePinchHands.length === 2) {
+        const h0 = activePinchHands[0];
+        const h1 = activePinchHands[1];
+        const dist = Math.hypot(h0.sx - h1.sx, h0.sy - h1.sy);
+        if (!appState.dualPinch) {
+          if (appState.heldPiece) {
+            appState.heldPiece.targetPos.set(appState.heldPiece.col - 3.5, 0.03, appState.heldPiece.row - 3.5);
+            appState.heldPiece = null;
+            clearHighlights();
+          }
+          appState.resizeDrag = null;
+          appState.dualPinch = {
+            startDist: Math.max(dist, 40),
+            startScale: appState.targetBoardScale
+          };
+          SoundFX.pinchGrab();
+        } else {
+          const ratio = dist / appState.dualPinch.startDist;
+          appState.targetBoardScale = Math.min(2.25, Math.max(0.45, appState.dualPinch.startScale * ratio));
+          updateScaleUI();
+          SoundFX.boardResize(appState.targetBoardScale);
+        }
+      } else {
+        appState.dualPinch = null;
+        if (handTrackers[0].isPinching) {
+          movePinchAction(handTrackers[0].sx, handTrackers[0].sy);
+        }
+      }
+
+      // Atualiza badge de telemetria
+      handDot.classList.add('locked');
+      if (appState.dualPinch || appState.resizeDrag) {
+        handBadge.className = 'hand-badge pinching';
+        handBadgeText.textContent = 'Redimensionando pela Pincelada';
+      } else if (appState.heldPiece) {
+        const dragWorld = raycastDragPlane(handTrackers[0].sx, handTrackers[0].sy);
+        const local = dragWorld ? worldToBoardLocal(dragWorld) : null;
+        const overCem = local && Math.abs(local.x) >= 4.20 && Math.abs(local.z) <= 4.75;
+        handBadge.className = overCem ? 'hand-badge cemetery' : 'hand-badge pinching';
+        handBadgeText.textContent = overCem ? 'Solte no Cemiterio Lateral' : 'Segurando Peca com Pincelada';
+      } else if (handTrackers[0].isPinching) {
+        handBadge.className = 'hand-badge pinching';
+        handBadgeText.textContent = 'Pincelada Ativa';
+      } else {
+        handBadge.className = 'hand-badge';
+        handBadgeText.textContent = 'Mao Visivel na Frente do Tabuleiro';
+      }
+    }
+
+    // Desenho da mao em primeiro plano SEMPRE na frente do tabuleiro 3D
+    const FINGER_CHAINS = [
+      [0, 1, 2, 3, 4],
+      [0, 5, 6, 7, 8],
+      [0, 9, 10, 11, 12],
+      [0, 13, 14, 15, 16],
+      [0, 17, 18, 19, 20]
+    ];
+
+    function renderForegroundHandOverlay() {
+      const sw = handCanvas.width;
+      const sh = handCanvas.height;
+      handCtx.clearRect(0, 0, sw, sh);
+
+      if (!latestLandmarks || latestLandmarks.length === 0) return;
+
+      // 1) Recorta os pixels REAIS da mao da camera e desenha na frente da cena 3D
+      if (appState.videoReady && videoEl.videoWidth > 0) {
+        const vw = videoEl.videoWidth;
+        const vh = videoEl.videoHeight;
+        const scale = Math.max(sw / vw, sh / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
+        const ox = (sw - dw) * 0.5;
+        const oy = (sh - dh) * 0.5;
+
+        handMaskCtx.save();
+        handMaskCtx.globalCompositeOperation = 'source-over';
+        handMaskCtx.clearRect(0, 0, sw, sh);
+        handMaskCtx.fillStyle = '#FFFFFF';
+        handMaskCtx.strokeStyle = '#FFFFFF';
+        handMaskCtx.lineCap = 'round';
+        handMaskCtx.lineJoin = 'round';
+
+        for (let i = 0; i < Math.min(2, latestLandmarks.length); i++) {
+          const pts = handTrackers[i].lmScreen;
+          if (!pts) continue;
+          const palmPx = Math.hypot(pts[0].x - pts[9].x, pts[0].y - pts[9].y);
+          const fingerThick = Math.max(18, palmPx * 0.30);
+
+          // Palma
+          handMaskCtx.beginPath();
+          [0, 1, 2, 5, 9, 13, 17].forEach((idx, k) => {
+            if (k === 0) handMaskCtx.moveTo(pts[idx].x, pts[idx].y);
+            else handMaskCtx.lineTo(pts[idx].x, pts[idx].y);
+          });
+          handMaskCtx.closePath();
+          handMaskCtx.fill();
+          handMaskCtx.lineWidth = fingerThick * 0.9;
+          handMaskCtx.stroke();
+
+          // Dedos
+          handMaskCtx.lineWidth = fingerThick;
+          for (const chain of FINGER_CHAINS) {
+            handMaskCtx.beginPath();
+            chain.forEach((idx, k) => {
+              if (k === 0) handMaskCtx.moveTo(pts[idx].x, pts[idx].y);
+              else handMaskCtx.lineTo(pts[idx].x, pts[idx].y);
+            });
+            handMaskCtx.stroke();
+          }
+        }
+
+        handMaskCtx.globalCompositeOperation = 'source-in';
+        if (appState.mirrorVideo) {
+          handMaskCtx.translate(sw, 0);
+          handMaskCtx.scale(-1, 1);
+        }
+        handMaskCtx.drawImage(videoEl, ox, oy, dw, dh);
+        handMaskCtx.restore();
+
+        handCtx.save();
+        handCtx.globalAlpha = 0.92;
+        handCtx.drawImage(handMaskCanvas, 0, 0);
+        handCtx.restore();
+      }
+
+      // 2) Esqueleto leve SmartNeoCare e Cursor de Pincelada sempre visiveis
+      for (let i = 0; i < Math.min(2, latestLandmarks.length); i++) {
+        const ht = handTrackers[i];
+        const pts = ht.lmScreen;
+        if (!pts) continue;
+
+        const isPinch = ht.isPinching;
+        const lineCol = isPinch ? 'rgba(200, 62, 123, 0.72)' : 'rgba(29, 111, 165, 0.52)';
+        const dotCol = isPinch ? '#C83E7B' : '#82C8F3';
+
+        handCtx.save();
+        handCtx.strokeStyle = lineCol;
+        handCtx.lineWidth = 2.6;
+        handCtx.lineCap = 'round';
+        for (const chain of FINGER_CHAINS) {
+          handCtx.beginPath();
+          chain.forEach((idx, k) => {
+            if (k === 0) handCtx.moveTo(pts[idx].x, pts[idx].y);
+            else handCtx.lineTo(pts[idx].x, pts[idx].y);
+          });
+          handCtx.stroke();
+        }
+
+        // Pontos de articulacao sutis
+        for (let j = 0; j < pts.length; j++) {
+          const isTip = j === 4 || j === 8;
+          handCtx.beginPath();
+          handCtx.arc(pts[j].x, pts[j].y, isTip ? 6.5 : 3.0, 0, Math.PI * 2);
+          handCtx.fillStyle = isTip ? (isPinch ? '#C83E7B' : '#FFFFFF') : dotCol;
+          handCtx.fill();
+        }
+
+        // Feixe e reticulo da Pincelada entre polegar (4) e indicador (8)
+        handCtx.beginPath();
+        handCtx.moveTo(pts[4].x, pts[4].y);
+        handCtx.lineTo(pts[8].x, pts[8].y);
+        handCtx.strokeStyle = isPinch ? '#C83E7B' : '#82C8F3';
+        handCtx.lineWidth = isPinch ? 4 : 2.2;
+        handCtx.stroke();
+
+        // Anel central de pincelada
+        const radius = isPinch ? 16 : Math.min(28, Math.max(14, ht.pinchRatio * 26));
+        handCtx.beginPath();
+        handCtx.arc(ht.sx, ht.sy, radius, 0, Math.PI * 2);
+        handCtx.fillStyle = isPinch ? 'rgba(246, 179, 208, 0.42)' : 'rgba(255, 255, 255, 0.30)';
+        handCtx.fill();
+        handCtx.lineWidth = isPinch ? 3.5 : 2;
+        handCtx.strokeStyle = isPinch ? '#C83E7B' : '#1D6FA5';
+        handCtx.stroke();
+        handCtx.restore();
+      }
+    }
+
+    async function initMediaPipeHands() {
+      if (typeof window.Hands === 'undefined') return;
+      mpHands = new window.Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      mpHands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.58,
+        minTrackingConfidence: 0.58
+      });
+      mpHands.onResults(onHandResults);
+    }
+
+    async function startCamera() {
+      camFallbackChip.classList.remove('visible');
+      try {
+        if (videoEl.srcObject) {
+          videoEl.srcObject.getTracks().forEach(t => t.stop());
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: appState.facingMode
+          },
+          audio: false
+        });
+        videoEl.srcObject = stream;
+        await videoEl.play();
+        appState.videoReady = true;
+        videoEl.classList.add('active');
+        videoEl.classList.toggle('mirrored', appState.mirrorVideo);
+      } catch (err) {
+        appState.videoReady = false;
+        camFallbackMsg.textContent = 'Camera indisponivel. Jogo virtual AR ativo com mouse ou toque.';
+        camFallbackChip.classList.add('visible');
+      }
+    }
+
+    // =========================================================================
+    // 9. EVENTOS DA HUD NAO INVASIVA
+    // =========================================================================
+    btnVirtualMode.addEventListener('click', () => {
+      appState.autoSearchReal = false;
+      appState.targetBoardPos.set(0, 0, 0);
+      setBoardMode('virtual', false);
+    });
+
+    btnRealMode.addEventListener('click', () => {
+      appState.autoSearchReal = true;
+      setBoardMode('real', appState.realBoardFound);
+    });
+
+    btnResizeMode.addEventListener('click', () => {
+      appState.forceResizeMode = !appState.forceResizeMode;
+      btnResizeMode.classList.toggle('active-rose', appState.forceResizeMode);
+    });
+
+    btnPlayMode.addEventListener('click', () => {
+      appState.playMode = appState.playMode === 'ai' ? 'free' : 'ai';
+      playModeText.textContent = appState.playMode === 'ai' ? 'Modo IA' : 'Modo Livre 2J';
+      btnPlayMode.classList.toggle('active-rose', appState.playMode === 'ai');
+      btnPlayMode.classList.toggle('active-blue', appState.playMode === 'free');
+      if (appState.playMode === 'ai' && appState.turn === 'b' && !appState.gameOver && !appState.aiThinking) {
+        appState.aiThinking = true;
+        updateTurnHUD();
+        setTimeout(runAiTurn, 420);
+      }
+    });
+
+    btnMirror.addEventListener('click', () => {
+      appState.mirrorVideo = !appState.mirrorVideo;
+      videoEl.classList.toggle('mirrored', appState.mirrorVideo);
+      btnMirror.classList.toggle('active-blue', !appState.mirrorVideo);
+    });
+
+    btnCameraFlip.addEventListener('click', () => {
+      appState.facingMode = appState.facingMode === 'user' ? 'environment' : 'user';
+      appState.mirrorVideo = appState.facingMode === 'user';
+      startCamera();
+    });
+
+    btnSound.addEventListener('click', () => {
+      const on = SoundFX.toggle();
+      soundText.textContent = on ? 'Som Ativo' : 'Sem Som';
+      btnSound.classList.toggle('active-blue', on);
+    });
+
+    btnReset.addEventListener('click', () => {
+      SoundFX.pinchGrab();
+      setupBoard();
+    });
+
+    btnRetryCam.addEventListener('click', () => {
+      startCamera();
+    });
+
+    window.addEventListener('resize', updateCameraViewport);
+
+    // =========================================================================
+    // 10. LOOP PRINCIPAL 60FPS (ANIMACAO 3D + MEDIAPIPE + CV TABULEIRO REAL)
+    // =========================================================================
+    let lastHandInferTime = 0;
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      // Suaviza escala e posicao do tabuleiro AR
+      appState.boardScale += (appState.targetBoardScale - appState.boardScale) * 0.22;
+      boardGroup.scale.setScalar(appState.boardScale);
+      appState.boardPos.lerp(appState.targetBoardPos, 0.14);
+      boardGroup.position.copy(appState.boardPos);
+
+      // Anima pecas suavemente ate suas posicoes alvo
+      for (const p of pieces) {
+        const lerpSpeed = p === appState.heldPiece ? 0.42 : 0.22;
+        p.mesh.position.lerp(p.targetPos, lerpSpeed);
+        const curScale = p.mesh.scale.x;
+        const nextScale = curScale + (p.targetScale - curScale) * 0.2;
+        p.mesh.scale.setScalar(nextScale);
+
+        if (p === appState.heldPiece) {
+          p.mat.emissive.setHex(0xC83E7B);
+          p.mat.emissiveIntensity = 0.28;
+        } else {
+          p.mat.emissive.setHex(0x000000);
+          p.mat.emissiveIntensity = 0;
+        }
+      }
+
+      // Brilho nos cemiterios laterais ao segurar peca
+      const trayOpacity = appState.heldPiece ? 0.90 : 0.66;
+      cemeteryLeftMat.opacity += (trayOpacity - cemeteryLeftMat.opacity) * 0.18;
+      cemeteryRightMat.opacity += (trayOpacity - cemeteryRightMat.opacity) * 0.18;
+
+      // Pulso suave nos 4 cantos de redimensionamento
+      const pulse = 1 + Math.sin(now * 0.004) * 0.08;
+      resizeHandles.forEach((h) => {
+        const activeScale = (appState.resizeDrag || appState.forceResizeMode) ? 1.32 : pulse;
+        h.group.scale.setScalar(activeScale);
+        h.orbMat.color.setHex((appState.resizeDrag || appState.forceResizeMode) ? 0xF6B3D0 : 0x82C8F3);
+      });
+
+      renderer.render(scene, camera);
+      renderForegroundHandOverlay();
+
+      // Despacho assincrono nao bloqueante para MediaPipe Hands (~30fps)
+      if (appState.videoReady && mpHands && !isProcessingHand && videoEl.readyState >= 2 && (now - lastHandInferTime > 30)) {
+        isProcessingHand = true;
+        lastHandInferTime = now;
+        mpHands.send({ image: videoEl }).catch(() => {
+          isProcessingHand = false;
+        });
+      }
+
+      // Scanner de tabuleiro real na camera (~4x por segundo)
+      if (now - lastCvScan > 240) {
+        lastCvScan = now;
+        scanForPhysicalChessboard();
+      }
+    }
+
+    // Inicializacao imediata: camera em tela cheia + jogo rodando desde o segundo 0
+    updateCameraViewport();
+    setupBoard();
+    setBoardMode('virtual', false);
+    initMediaPipeHands();
+    startCamera();
+    requestAnimationFrame(animate);
+  })();
+  </script>
+</body>
+</html>
