@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#F6B3D0">
   <title>ChessPages AR</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.com/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -141,7 +141,7 @@
     })();
 
     // =========================================================================
-    // 2. ESTADO GLOBAL 6DoF AR (SUPERFICIE + TABULEIRO FISICO)
+    // 2. ESTADO GLOBAL 6DoF AR COM ESTABILIDADE E IMUNIDADE A MAO
     // =========================================================================
     const videoEl = document.getElementById('cameraVideo');
     const threeCanvas = document.getElementById('threeCanvas');
@@ -149,40 +149,39 @@
     const handCtx = handCanvas.getContext('2d');
 
     const appState = {
-      boardMode: 'virtual',     // 'virtual' (ancora em superficie tipo Minecraft Earth) | 'real' (tabuleiro fisico)
+      boardMode: 'virtual',     // 'virtual' (ancora em superficie) | 'real' (tabuleiro fisico)
       mirrorVideo: true,
       videoReady: false,
-      surfaceLocked: false,
 
-      // Pose 6DoF do plano ancorado no espaco da camera (Camera em 0,0,0 olhando para -Z)
-      anchorU: 0.0,             // Posicao horizontal normalizada na tela [-0.5 .. +0.5]
-      anchorV: 0.10,            // Posicao vertical normalizada na tela [-0.5 .. +0.5]
+      // Pose 6DoF da superficie ancorada no espaco da camera (Camera em 0,0,0 olhando para -Z)
+      anchorU: 0.0,
+      anchorV: 0.08,
       targetAnchorU: 0.0,
-      targetAnchorV: 0.10,
+      targetAnchorV: 0.08,
 
-      boardDepth: 13.8,         // Distancia 3D da camera ate a superficie
-      targetBoardDepth: 13.8,
+      boardDepth: 13.6,
+      targetBoardDepth: 13.6,
 
-      boardPitch: 0.76,         // Inclinacao 3D da superficie em relacao ao eixo optico da camera (radianos)
-      targetBoardPitch: 0.76,
+      boardPitch: 0.78,
+      targetBoardPitch: 0.78,
 
-      boardYaw: 0.0,            // Rotacao do tabuleiro sobre o plano da mesa (radianos)
+      boardYaw: 0.0,
       targetBoardYaw: 0.0,
 
-      boardRoll: 0.0,           // Inclinacao lateral do horizonte da camera (radianos)
+      boardRoll: 0.0,
       targetBoardRoll: 0.0,
 
       heldPiece: null,
       hoveredPiece: null,
-      handBBox: null            // Mascara da mao em coordenadas CV para nao interferir no rastreio da superficie
+      handVisible: false,
+      lastHandSeenTime: 0
     };
 
     // =========================================================================
-    // 3. CENA 3D AR COM CAMERA OPTICA REAL EM (0, 0, 0) OLHANDO PARA -Z
+    // 3. CENA 3D AR COM CAMERA OPTICA EM (0, 0, 0) OLHANDO PARA -Z
     // =========================================================================
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 120);
-    // Camera optica na origem olhando exatamente na direcao do video (-Z)
     camera.position.set(0, 0, 0);
     camera.lookAt(0, 0, -1);
 
@@ -234,24 +233,24 @@
     const boardGroup = new THREE.Group();
     scene.add(boardGroup);
 
-    // Malha sutil de ancoragem de superficie AR (estilo Pokemon GO / Minecraft Earth)
+    // Anel sutil de ancoragem AR na superficie
     const arSurfaceRingMat = new THREE.MeshBasicMaterial({
       color: 0x82C8F3,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.20,
       side: THREE.DoubleSide
     });
-    const arSurfaceRing = new THREE.Mesh(new THREE.RingGeometry(4.55, 4.72, 48), arSurfaceRingMat);
+    const arSurfaceRing = new THREE.Mesh(new THREE.RingGeometry(4.55, 4.70, 48), arSurfaceRingMat);
     arSurfaceRing.rotation.x = -Math.PI / 2;
     arSurfaceRing.position.y = -0.08;
     boardGroup.add(arSurfaceRing);
 
-    // Moldura luminosa 3D que aparece quando um Tabuleiro Fisico Real e reconhecido
+    // Moldura luminosa 3D quando um Tabuleiro Fisico Real e reconhecido
     const realBoardFrameGroup = new THREE.Group();
     const realFrameMat = new THREE.MeshBasicMaterial({
       color: 0x82C8F3,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.78,
       side: THREE.DoubleSide
     });
     const bracketPositions = [
@@ -292,10 +291,10 @@
     boardBaseMesh.receiveShadow = true;
     boardGroup.add(boardBaseMesh);
 
-    // Plano receptor de sombra sobre a superficie real (mesa ou tabuleiro fisico)
+    // Plano receptor de sombra sobre a superficie real
     const realShadowPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(18, 18),
-      new THREE.ShadowMaterial({ opacity: 0.30 })
+      new THREE.ShadowMaterial({ opacity: 0.28 })
     );
     realShadowPlane.rotation.x = -Math.PI / 2;
     realShadowPlane.position.y = 0.004;
@@ -335,7 +334,7 @@
       opacity: 0,
       side: THREE.DoubleSide
     });
-    const focusRingMesh = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.44, 28), focusRingMat);
+    const focusRingMesh = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.46, 28), focusRingMat);
     focusRingMesh.rotation.x = -Math.PI / 2;
     focusRingMesh.position.y = 0.045;
     boardGroup.add(focusRingMesh);
@@ -434,10 +433,10 @@
       }
 
       const hitMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.45, 0.45, 1.45, 12),
+        new THREE.CylinderGeometry(0.48, 0.48, 1.55, 12),
         new THREE.MeshBasicMaterial({ visible: false })
       );
-      hitMesh.position.y = 0.72;
+      hitMesh.position.y = 0.75;
       group.add(hitMesh);
 
       return { group, mat, hitMesh };
@@ -546,7 +545,6 @@
       if (appState.boardMode === mode) return;
       appState.boardMode = mode;
       const isReal = mode === 'real';
-      // Quando identifica um tabuleiro fisico real, esconde a base solida e mostra a moldura AR sobre o tabuleiro real
       boardBaseMesh.visible = !isReal;
       arSurfaceRing.visible = !isReal;
       realBoardFrameGroup.visible = isReal;
@@ -555,11 +553,12 @@
     }
 
     // =========================================================================
-    // 6. INTERACAO POR PINCELADA EM PLANO 3D COM ROTACAO LIVRE (6DoF)
+    // 6. INTERACAO POR PINCELADA PRECISA (PROJECCAO 2D DE TELA + PLANO 3D)
     // =========================================================================
     const raycaster = new THREE.Raycaster();
     const tmpNormal = new THREE.Vector3();
     const tmpPoint = new THREE.Vector3();
+    const projVec = new THREE.Vector3();
     const dynamicGroundPlane = new THREE.Plane();
     const dynamicDragPlane = new THREE.Plane();
 
@@ -571,10 +570,10 @@
     }
 
     function updateDynamicPlanes() {
-      boardGroup.updateMatrixWorld();
+      boardGroup.updateMatrixWorld(true);
       tmpNormal.set(0, 1, 0).applyQuaternion(boardGroup.quaternion).normalize();
       dynamicGroundPlane.setFromNormalAndCoplanarPoint(tmpNormal, boardGroup.position);
-      tmpPoint.set(0, 1.25, 0);
+      tmpPoint.set(0, 0.75, 0);
       boardGroup.localToWorld(tmpPoint);
       dynamicDragPlane.setFromNormalAndCoplanarPoint(tmpNormal, tmpPoint);
     }
@@ -594,23 +593,49 @@
     }
 
     function worldToBoardLocal(worldPt) {
-      boardGroup.updateMatrixWorld();
+      boardGroup.updateMatrixWorld(true);
       return boardGroup.worldToLocal(worldPt.clone());
     }
 
     function findPieceNear(sx, sy) {
+      boardGroup.updateMatrixWorld(true);
+
+      // 1) Raycast 3D direto nos cilindros das pecas
       raycaster.setFromCamera(screenToNdc(sx, sy), camera);
       const hits = raycaster.intersectObjects(pieceHitMeshes, false);
       if (hits.length > 0) {
         return hits[0].object.userData.piece;
       }
 
+      // 2) Busca em espaco de tela 2D (projeta o centro do corpo de cada peca na tela para eliminar erro de paralaxe)
+      const sw = window.innerWidth;
+      const sh = window.innerHeight;
+      const maxScreenDistPx = Math.max(42, Math.min(sw, sh) * 0.068);
+      let bestScreenPiece = null;
+      let bestScreenDist = maxScreenDistPx;
+
+      for (const p of pieces) {
+        projVec.set(p.targetPos.x, 0.45, p.targetPos.z);
+        boardGroup.localToWorld(projVec);
+        projVec.project(camera);
+        if (projVec.z > 1.0) continue;
+        const px = (projVec.x * 0.5 + 0.5) * sw;
+        const py = (-projVec.y * 0.5 + 0.5) * sh;
+        const dPx = Math.hypot(px - sx, py - sy);
+        if (dPx < bestScreenDist) {
+          bestScreenDist = dPx;
+          bestScreenPiece = p;
+        }
+      }
+      if (bestScreenPiece) return bestScreenPiece;
+
+      // 3) Fallback no plano do tabuleiro
       const groundWorld = raycastBoardGround(sx, sy);
       if (!groundWorld) return null;
       const local = worldToBoardLocal(groundWorld);
 
       let bestPiece = null;
-      let bestDist = 0.68;
+      let bestDist = 0.72;
       for (const p of pieces) {
         const d = Math.hypot(p.targetPos.x - local.x, p.targetPos.z - local.z);
         if (d < bestDist) {
@@ -636,7 +661,7 @@
         const dragWorld = raycastDragPlane(sx, sy) || raycastBoardGround(sx, sy);
         if (dragWorld) {
           const local = worldToBoardLocal(dragWorld);
-          appState.heldPiece.targetPos.set(local.x, 1.30, local.z);
+          appState.heldPiece.targetPos.set(local.x, 1.25, local.z);
         }
       } else {
         appState.hoveredPiece = findPieceNear(sx, sy);
@@ -669,7 +694,7 @@
     });
 
     // =========================================================================
-    // 7. MOTOR 6DoF AR: DETECTOR ChESS ROTATION-INVARIANT + SLAM DE SUPERFICIE PLANA
+    // 7. MOTOR AR ESTAVEL: IMUNE A MAO NA FRENTE + CONSENSO DE 4 QUADRANTES
     // =========================================================================
     const cvW = 160;
     const cvH = 120;
@@ -681,8 +706,9 @@
 
     let realBoardHits = 0;
     let realBoardMisses = 0;
+    let lastBoardCandCx = null;
+    let lastBoardCandCy = null;
 
-    // Anel circular de 16 pontos (raio 4px) para o detector ChESS de interseccoes X de xadrez
     const CHESS_RING_16 = [
       [4, 0], [4, 2], [3, 3], [2, 4],
       [0, 4], [-2, 4], [-3, 3], [-4, 2],
@@ -690,20 +716,12 @@
       [0, -4], [2, -4], [3, -3], [4, -2]
     ];
 
-    function isInsideHandMask(x, y) {
-      const hb = appState.handBBox;
-      if (!hb) return false;
-      return x >= hb.minX && x <= hb.maxX && y >= hb.minY && y <= hb.maxY;
-    }
-
-    // Detector ChESS invariante a rotacao e perspectiva para Tabuleiro de Xadrez Real
+    // Detector ChESS de Tabuleiro Fisico (so executa quando a mao NAO esta na frente)
     function detectPhysicalChessboard(gray) {
       const candidates = [];
 
-      for (let y = 8; y < cvH - 8; y += 2) {
-        for (let x = 8; x < cvW - 8; x += 2) {
-          if (isInsideHandMask(x, y)) continue;
-
+      for (let y = 10; y < cvH - 10; y += 2) {
+        for (let x = 10; x < cvW - 10; x += 2) {
           const ring = new Int16Array(16);
           let ringSum = 0;
           for (let k = 0; k < 16; k++) {
@@ -724,7 +742,7 @@
           for (let k = 0; k < 4; k++) {
             sumResponse += Math.abs((ring[k] + ring[k + 8]) - (ring[k + 4] + ring[k + 12]));
           }
-          if (sumResponse < 85) continue;
+          if (sumResponse < 95) continue;
 
           let diffPenalty = 0;
           for (let k = 0; k < 8; k++) {
@@ -732,9 +750,9 @@
           }
 
           const meanPenalty = Math.abs(ringMean - centerMean) * 6;
-          const chessScore = sumResponse - 1.15 * diffPenalty - 1.1 * meanPenalty;
+          const chessScore = sumResponse - 1.2 * diffPenalty - 1.15 * meanPenalty;
 
-          if (chessScore > 38) {
+          if (chessScore > 44) {
             const c0 = (ring[0] + ring[8]) - (ring[4] + ring[12]);
             const c2 = (ring[2] + ring[10]) - (ring[6] + ring[14]);
             const phi = Math.atan2(c2, c0);
@@ -752,7 +770,6 @@
         }
       }
 
-      // Non-maximum suppression em raio 5px
       candidates.sort((a, b) => b.score - a.score);
       const peaks = [];
       for (const c of candidates) {
@@ -769,10 +786,10 @@
         }
       }
 
-      if (peaks.length < 8) {
+      if (peaks.length < 12) {
         realBoardHits = Math.max(0, realBoardHits - 1);
         realBoardMisses++;
-        if (realBoardMisses > 10 && appState.boardMode === 'real') {
+        if (realBoardMisses > 16 && appState.boardMode === 'real') {
           applyBoardVisualMode('virtual');
         }
         return false;
@@ -789,7 +806,6 @@
       const cosPhi = Math.cos(domPhi);
       const sinPhi = Math.sin(domPhi);
 
-      // Mantem pontos com vizinhos regulares e verifica alternancia real de polaridade (+ e -)
       const gridPoints = [];
       let posPolarity = 0;
       let negPolarity = 0;
@@ -797,7 +813,7 @@
       for (let i = 0; i < peaks.length; i++) {
         const p = peaks[i];
         const phaseDiff = Math.abs(Math.atan2(Math.sin(Math.atan2(p.uy, p.ux) - domAngle4), Math.cos(Math.atan2(p.uy, p.ux) - domAngle4)));
-        if (phaseDiff > 1.15) continue;
+        if (phaseDiff > 0.95) continue;
 
         let nearest = Infinity;
         let secondNearest = Infinity;
@@ -811,7 +827,7 @@
             secondNearest = d;
           }
         }
-        if (nearest >= 4.5 && nearest <= 36 && secondNearest <= nearest * 1.95) {
+        if (nearest >= 5 && nearest <= 32 && secondNearest <= nearest * 1.75) {
           const polarity = p.c0 * cosPhi + p.c2 * sinPhi;
           if (polarity >= 0) posPolarity++;
           else negPolarity++;
@@ -819,7 +835,7 @@
         }
       }
 
-      if (gridPoints.length >= 8 && coherence >= 0.30 && posPolarity >= 2 && negPolarity >= 2) {
+      if (gridPoints.length >= 12 && coherence >= 0.45 && posPolarity >= 4 && negPolarity >= 4) {
         let cx = 0, cy = 0;
         const steps = [];
         for (const gp of gridPoints) {
@@ -829,45 +845,50 @@
         }
         cx /= gridPoints.length;
         cy /= gridPoints.length;
-        steps.sort((a, b) => a - b);
-        const medStep = steps[Math.floor(steps.length / 2)];
 
-        // PCA 2D dos pontos da grade para achar inclinacao de perspectiva (pitch) e rotacao (yaw)
-        let sxx = 0, syy = 0, sxy = 0;
-        for (const gp of gridPoints) {
-          const dx = gp.x - cx;
-          const dy = gp.y - cy;
-          sxx += dx * dx;
-          syy += dy * dy;
-          sxy += dx * dy;
+        // Exige que o centro do tabuleiro fisico seja estavel entre frames consecutivos
+        if (lastBoardCandCx !== null && Math.hypot(cx - lastBoardCandCx, cy - lastBoardCandCy) > 12) {
+          realBoardHits = 1;
+        } else {
+          realBoardHits++;
         }
-        sxx /= gridPoints.length;
-        syy /= gridPoints.length;
-        sxy /= gridPoints.length;
-
-        const trace = sxx + syy;
-        const det = sxx * syy - sxy * sxy;
-        const disc = Math.sqrt(Math.max(0, trace * trace * 0.25 - det));
-        const lambdaMajor = trace * 0.5 + disc;
-        const lambdaMinor = Math.max(1, trace * 0.5 - disc);
-
-        // Razao de escorco (foreshortening = sin(pitch)) determina o pitch 3D real do tabuleiro fisico
-        const aspectGrid = Math.min(0.98, Math.max(0.28, Math.sqrt(lambdaMinor / Math.max(lambdaMajor, 1))));
-        const estimatedPitch = Math.asin(aspectGrid);
-
-        const rawBoardYaw = domAngle4 * 0.25;
-        const signedYaw = appState.mirrorVideo ? -rawBoardYaw : rawBoardYaw;
-
-        const normX = cx / cvW;
-        const normY = cy / cvH;
-        const screenNormX = appState.mirrorVideo ? (1 - normX) : normX;
-
-        const estDepth = Math.min(20.5, Math.max(8.2, 165 / Math.max(medStep, 6)));
-
-        realBoardHits++;
+        lastBoardCandCx = cx;
+        lastBoardCandCy = cy;
         realBoardMisses = 0;
 
-        if (realBoardHits >= 2) {
+        if (realBoardHits >= 4) {
+          steps.sort((a, b) => a - b);
+          const medStep = steps[Math.floor(steps.length / 2)];
+
+          let sxx = 0, syy = 0, sxy = 0;
+          for (const gp of gridPoints) {
+            const dx = gp.x - cx;
+            const dy = gp.y - cy;
+            sxx += dx * dx;
+            syy += dy * dy;
+            sxy += dx * dy;
+          }
+          sxx /= gridPoints.length;
+          syy /= gridPoints.length;
+          sxy /= gridPoints.length;
+
+          const trace = sxx + syy;
+          const det = sxx * syy - sxy * sxy;
+          const disc = Math.sqrt(Math.max(0, trace * trace * 0.25 - det));
+          const lambdaMajor = trace * 0.5 + disc;
+          const lambdaMinor = Math.max(1, trace * 0.5 - disc);
+
+          const aspectGrid = Math.min(0.98, Math.max(0.28, Math.sqrt(lambdaMinor / Math.max(lambdaMajor, 1))));
+          const estimatedPitch = Math.asin(aspectGrid);
+
+          const rawBoardYaw = domAngle4 * 0.25;
+          const signedYaw = appState.mirrorVideo ? -rawBoardYaw : rawBoardYaw;
+
+          const normX = cx / cvW;
+          const normY = cy / cvH;
+          const screenNormX = appState.mirrorVideo ? (1 - normX) : normX;
+          const estDepth = Math.min(18.5, Math.max(9.0, 165 / Math.max(medStep, 6)));
+
           if (appState.boardMode !== 'real') {
             applyBoardVisualMode('real');
             SoundFX.boardDetected();
@@ -875,7 +896,7 @@
           appState.targetAnchorU = screenNormX - 0.5;
           appState.targetAnchorV = normY - 0.5;
           appState.targetBoardDepth = estDepth;
-          appState.targetBoardPitch = Math.min(1.38, Math.max(0.26, estimatedPitch));
+          appState.targetBoardPitch = Math.min(1.35, Math.max(0.32, estimatedPitch));
           appState.targetBoardYaw = signedYaw;
         }
         return true;
@@ -883,19 +904,18 @@
 
       realBoardHits = Math.max(0, realBoardHits - 1);
       realBoardMisses++;
-      if (realBoardMisses > 10 && appState.boardMode === 'real') {
+      if (realBoardMisses > 16 && appState.boardMode === 'real') {
         applyBoardVisualMode('virtual');
       }
       return false;
     }
 
     // =========================================================================
-    // RASTREADOR 6DoF DE SUPERFICIE (SHI-TOMASI CORNERS + PROCRUSTES + IMU)
+    // RASTREADOR 6DoF DE CAMERA POR CONSENSO DE 4 QUADRANTES + GIROSCOPIO IMU
     // =========================================================================
     const surfaceFeatures = [];
     let prevGray = null;
 
-    // Sensores inerciais (Giroscopio / Acelerometro para rotacoes 3D da camera)
     let imuLastAlpha = null;
     let imuLastBeta = null;
     let imuLastGamma = null;
@@ -911,12 +931,12 @@
           if (dAlpha > 180) dAlpha -= 360;
           if (dAlpha < -180) dAlpha += 360;
 
-          if (Math.abs(dBeta) < 20 && Math.abs(dGamma) < 20) {
-            appState.targetBoardPitch = Math.min(1.32, Math.max(0.20, appState.targetBoardPitch - dBeta * rad * 0.85));
-            appState.targetBoardRoll = Math.min(0.65, Math.max(-0.65, appState.targetBoardRoll - dGamma * rad * 0.65));
-            appState.targetBoardYaw += dAlpha * rad * 0.75;
-            appState.targetAnchorV = Math.min(0.45, Math.max(-0.45, appState.targetAnchorV + dBeta * 0.011));
-            appState.targetAnchorU = Math.min(0.48, Math.max(-0.48, appState.targetAnchorU - dGamma * 0.011));
+          if (Math.abs(dBeta) < 18 && Math.abs(dGamma) < 18) {
+            appState.targetBoardPitch = Math.min(1.32, Math.max(0.28, appState.targetBoardPitch - dBeta * rad * 0.80));
+            appState.targetBoardRoll = Math.min(0.55, Math.max(-0.55, appState.targetBoardRoll - dGamma * rad * 0.60));
+            appState.targetBoardYaw += dAlpha * rad * 0.70;
+            appState.targetAnchorV = Math.min(0.38, Math.max(-0.38, appState.targetAnchorV + dBeta * 0.010));
+            appState.targetAnchorU = Math.min(0.42, Math.max(-0.42, appState.targetAnchorU - dGamma * 0.010));
           }
         }
         imuLastAlpha = ev.alpha;
@@ -925,7 +945,6 @@
       }, { passive: true });
     }
 
-    // Score de canto Shi-Tomasi 2D (garante cantos reais ancorados em X e Y, rejeitando paredes lisas e bordas 1D)
     function computeShiTomasiScore(gray, cx, cy) {
       let sxx = 0, syy = 0, sxy = 0;
       for (let dy = -2; dy <= 2; dy++) {
@@ -957,37 +976,32 @@
       return buf;
     }
 
-    // Encontra a superficie plana mais estavel no quadro e planta pontos de ancoragem
-    function seedSurfaceFeatures(gray, aroundCenter = true) {
-      const centerPxX = aroundCenter
-        ? Math.round(((appState.mirrorVideo ? 0.5 - appState.targetAnchorU : 0.5 + appState.targetAnchorU)) * cvW)
-        : cvW >> 1;
-      const centerPxY = aroundCenter
-        ? Math.round((0.5 + appState.targetAnchorV) * cvH)
-        : Math.round(cvH * 0.58);
-
-      const minX = Math.max(14, centerPxX - 56);
-      const maxX = Math.min(cvW - 14, centerPxX + 56);
-      const minY = Math.max(14, centerPxY - 40);
-      const maxY = Math.min(cvH - 14, centerPxY + 40);
-
+    // Semeia pontos de fundo nos 4 quadrantes da cena (NUNCA reposiciona o tabuleiro ao semear!)
+    function seedBackgroundQuadrants(gray) {
       const candidates = [];
-      for (let y = minY; y <= maxY; y += 5) {
-        for (let x = minX; x <= maxX; x += 5) {
-          if (isInsideHandMask(x, y)) continue;
+      for (let y = 14; y <= cvH - 14; y += 6) {
+        for (let x = 14; x <= cvW - 14; x += 6) {
           const score = computeShiTomasiScore(gray, x, y);
-          if (score > 420) {
-            candidates.push({ x, y, score });
+          if (score > 450) {
+            const quad = (y < cvH * 0.5 ? 0 : 2) + (x < cvW * 0.5 ? 0 : 1);
+            candidates.push({ x, y, score, quad });
           }
         }
       }
 
       candidates.sort((a, b) => b.score - a.score);
+      const perQuad = [0, 0, 0, 0];
+      for (const f of surfaceFeatures) {
+        const q = (f.y < cvH * 0.5 ? 0 : 2) + (f.x < cvW * 0.5 ? 0 : 1);
+        perQuad[q]++;
+      }
+
       for (const c of candidates) {
-        if (surfaceFeatures.length >= 16) break;
+        if (surfaceFeatures.length >= 20) break;
+        if (perQuad[c.quad] >= 5) continue;
         let tooClose = false;
         for (const f of surfaceFeatures) {
-          if (Math.hypot(f.x - c.x, f.y - c.y) < 11) {
+          if (Math.hypot(f.x - c.x, f.y - c.y) < 12) {
             tooClose = true;
             break;
           }
@@ -996,47 +1010,54 @@
           surfaceFeatures.push({
             x: c.x,
             y: c.y,
+            quad: c.quad,
             patch: copyPatch7x7(gray, c.x, c.y)
           });
+          perQuad[c.quad]++;
         }
-      }
-
-      if (!appState.surfaceLocked && surfaceFeatures.length >= 4) {
-        appState.surfaceLocked = true;
-        let mx = 0, my = 0;
-        for (const f of surfaceFeatures) {
-          mx += f.x;
-          my += f.y;
-        }
-        mx /= surfaceFeatures.length;
-        my /= surfaceFeatures.length;
-        const normX = mx / cvW;
-        const normY = my / cvH;
-        appState.targetAnchorU = (appState.mirrorVideo ? (1 - normX) : normX) - 0.5;
-        appState.targetAnchorV = Math.max(-0.25, Math.min(0.32, normY - 0.5));
-        appState.anchorU = appState.targetAnchorU;
-        appState.anchorV = appState.targetAnchorV;
       }
     }
 
-    function trackSurface6DoF(gray) {
-      if (!prevGray || surfaceFeatures.length < 4) {
+    function trackCameraEgoMotion6DoF(gray) {
+      if (!prevGray || surfaceFeatures.length < 6) {
         prevGray = gray;
-        seedSurfaceFeatures(gray, appState.surfaceLocked);
+        seedBackgroundQuadrants(gray);
         return;
       }
 
-      const searchR = 10;
-      const rawMatches = [];
+      // Verifica se uma mao/braco acabou de entrar subitamente no centro do quadro (diferenca localizada de luminancia)
+      let centerDiff = 0, borderDiff = 0;
+      let centerCnt = 0, borderCnt = 0;
+      for (let y = 10; y < cvH - 10; y += 4) {
+        for (let x = 10; x < cvW - 10; x += 4) {
+          const d = Math.abs(gray[y * cvW + x] - prevGray[y * cvW + x]);
+          if (x > 36 && x < 124 && y > 24 && y < 108) {
+            centerDiff += d;
+            centerCnt++;
+          } else {
+            borderDiff += d;
+            borderCnt++;
+          }
+        }
+      }
+      const avgCenterDiff = centerDiff / Math.max(centerCnt, 1);
+      const avgBorderDiff = borderDiff / Math.max(borderCnt, 1);
+
+      // Se o centro mudou fortemente enquanto a borda ficou parada -> e uma mao/pessoa passando na frente da camera!
+      if (avgCenterDiff > 14 && avgCenterDiff > avgBorderDiff * 2.1) {
+        prevGray = gray;
+        return;
+      }
+
+      const searchR = 9;
+      const matches = [];
 
       for (const f of surfaceFeatures) {
         const ix = Math.round(f.x);
         const iy = Math.round(f.y);
-        if (ix < 14 || ix >= cvW - 14 || iy < 14 || iy >= cvH - 14) continue;
-        if (isInsideHandMask(ix, iy)) continue;
+        if (ix < 13 || ix >= cvW - 13 || iy < 13 || iy >= cvH - 13) continue;
 
         let bestSad = Infinity;
-        let secondBestSad = Infinity;
         let bestX = ix;
         let bestY = iy;
 
@@ -1053,39 +1074,41 @@
               }
             }
             if (sad < bestSad) {
-              secondBestSad = bestSad;
               bestSad = sad;
               bestX = cx;
               bestY = cy;
-            } else if (sad < secondBestSad) {
-              secondBestSad = sad;
             }
           }
         }
 
-        // Refinamento subpixel parabolico em X e Y
-        if (bestSad / 49 < 19 && !isInsideHandMask(bestX, bestY)) {
-          rawMatches.push({
+        if (bestSad / 49 < 16) {
+          const quad = (bestY < cvH * 0.5 ? 0 : 2) + (bestX < cvW * 0.5 ? 0 : 1);
+          matches.push({
             x0: f.x,
             y0: f.y,
             x1: bestX,
             y1: bestY,
             dx: bestX - f.x,
-            dy: bestY - f.y
+            dy: bestY - f.y,
+            quad
           });
         }
       }
 
-      if (rawMatches.length >= 4) {
-        // Consenso robusto via mediana (RANSAC / MAD) para rejeitar outliers
-        const dxs = rawMatches.map(m => m.dx).sort((a, b) => a - b);
-        const dys = rawMatches.map(m => m.dy).sort((a, b) => a - b);
+      if (matches.length >= 6) {
+        const dxs = matches.map(m => m.dx).sort((a, b) => a - b);
+        const dys = matches.map(m => m.dy).sort((a, b) => a - b);
         const medDx = dxs[Math.floor(dxs.length / 2)];
         const medDy = dys[Math.floor(dys.length / 2)];
 
-        const inliers = rawMatches.filter(m => Math.hypot(m.dx - medDx, m.dy - medDy) < 4.2);
+        // Filtra inliers que concordam estritamente com o movimento global da camera (< 2.2px de desvio)
+        const inliers = matches.filter(m => Math.hypot(m.dx - medDx, m.dy - medDy) < 2.2);
 
-        if (inliers.length >= 3) {
+        // Conta em quantos quadrantes distintos da tela ha consenso de movimento da camera
+        const activeQuads = new Set(inliers.map(m => m.quad)).size;
+
+        // So move o tabuleiro se pelo menos 3 quadrantes da imagem inteira concordarem (movimento real da camera!)
+        if (inliers.length >= 5 && activeQuads >= 3) {
           let c0x = 0, c0y = 0, c1x = 0, c1y = 0;
           for (const m of inliers) {
             c0x += m.x0;
@@ -1101,7 +1124,6 @@
           const meanDx = c1x - c0x;
           const meanDy = c1y - c0y;
 
-          // Decomposicao Procrustes 2D: Rotacao (yaw/roll), Escala de Profundidade e Escorco de Inclinacao (pitch)
           let dot = 0, cross = 0, norm0 = 0;
           let varX0 = 0, varY0 = 0, varX1 = 0, varY1 = 0;
 
@@ -1121,51 +1143,41 @@
             varY1 += u1y * u1y;
           }
 
-          // 1) Translacao 2D da superficie -> move a ancora 3D em X e Y (horizontal e vertical)
-          if (Math.hypot(meanDx, meanDy) > 0.32) {
+          if (Math.hypot(meanDx, meanDy) > 0.45) {
             const screenDx = (appState.mirrorVideo ? -meanDx : meanDx) / cvW;
             const screenDy = meanDy / cvH;
-            appState.targetAnchorU = Math.min(0.46, Math.max(-0.46, appState.targetAnchorU + screenDx));
-            appState.targetAnchorV = Math.min(0.44, Math.max(-0.42, appState.targetAnchorV + screenDy));
+            appState.targetAnchorU = Math.min(0.38, Math.max(-0.38, appState.targetAnchorU + screenDx * 0.85));
+            appState.targetAnchorV = Math.min(0.36, Math.max(-0.32, appState.targetAnchorV + screenDy * 0.85));
           }
 
-          // 2) Rotacao da camera em torno da superficie -> atualiza Yaw e Roll 3D
-          if (norm0 > 80 && inliers.length >= 4) {
+          if (norm0 > 120 && inliers.length >= 6) {
             const dTheta = Math.atan2(cross, dot);
-            if (Math.abs(dTheta) > 0.004 && Math.abs(dTheta) < 0.22) {
+            if (Math.abs(dTheta) > 0.005 && Math.abs(dTheta) < 0.16) {
               const signedTheta = appState.mirrorVideo ? -dTheta : dTheta;
-              appState.targetBoardYaw += signedTheta * 0.95;
-              appState.targetBoardRoll = Math.min(0.55, Math.max(-0.55, appState.targetBoardRoll + signedTheta * 0.35));
+              appState.targetBoardYaw += signedTheta * 0.85;
+              appState.targetBoardRoll = Math.min(0.48, Math.max(-0.48, appState.targetBoardRoll + signedTheta * 0.30));
             }
 
-            // 3) Mudanca real de distancia ate a superficie -> atualiza boardDepth suavemente sem pulsar tamanho
-            const scaleRatio = Math.sqrt(dot * dot + cross * cross) / norm0;
-            if (inliers.length >= 6 && Math.abs(scaleRatio - 1.0) > 0.018 && Math.abs(scaleRatio - 1.0) < 0.14) {
-              appState.targetBoardDepth = Math.min(20.0, Math.max(8.5, appState.targetBoardDepth / scaleRatio));
-            }
-
-            // 4) Mudanca de inclinacao de perspectiva (foreshortening vertical vs horizontal) -> atualiza Pitch 3D
-            if (varX0 > 45 && varY0 > 45) {
+            if (varX0 > 60 && varY0 > 60) {
               const sx = Math.sqrt(varX1 / varX0);
               const sy = Math.sqrt(varY1 / varY0);
               const tiltRatio = sy / Math.max(sx, 0.2);
-              if (Math.abs(tiltRatio - 1.0) > 0.015 && Math.abs(tiltRatio - 1.0) < 0.18) {
-                appState.targetBoardPitch = Math.min(1.38, Math.max(0.26, appState.targetBoardPitch + (tiltRatio - 1.0) * 0.55));
+              if (Math.abs(tiltRatio - 1.0) > 0.018 && Math.abs(tiltRatio - 1.0) < 0.14) {
+                appState.targetBoardPitch = Math.min(1.32, Math.max(0.30, appState.targetBoardPitch + (tiltRatio - 1.0) * 0.45));
               }
             }
           }
 
-          // Acoplamento optico natural: ancoras mais baixas no quadro sao vistas mais de cima; mais altas ficam mais em perspectiva
-          const opticalPitchBase = 0.74 + appState.targetAnchorV * 0.44;
-          appState.targetBoardPitch = appState.targetBoardPitch * 0.92 + opticalPitchBase * 0.08;
+          const opticalPitchBase = 0.76 + appState.targetAnchorV * 0.38;
+          appState.targetBoardPitch = appState.targetBoardPitch * 0.94 + opticalPitchBase * 0.06;
         }
 
-        // Mantem os inliers atualizados
         surfaceFeatures.length = 0;
         for (const m of inliers) {
           surfaceFeatures.push({
             x: m.x1,
             y: m.y1,
+            quad: m.quad,
             patch: copyPatch7x7(gray, m.x1, m.y1)
           });
         }
@@ -1173,14 +1185,22 @@
         surfaceFeatures.length = 0;
       }
 
-      if (surfaceFeatures.length < 10) {
-        seedSurfaceFeatures(gray, true);
+      if (surfaceFeatures.length < 12) {
+        seedBackgroundQuadrants(gray);
       }
       prevGray = gray;
     }
 
-    function runArVisionStep() {
+    function runArVisionStep(now) {
       if (!appState.videoReady || videoEl.videoWidth === 0) return;
+
+      // TOLERANCIA TOTAL COM A MAO NA FRENTE:
+      // Enquanto o jogador estiver com a mao visivel (ou ate 750ms apos retirar a mao),
+      // trava completamente a posicao e rotacao visual do tabuleiro para jogar com 100% de estabilidade!
+      if (appState.handVisible || appState.heldPiece || (now - appState.lastHandSeenTime < 750)) {
+        prevGray = null;
+        return;
+      }
 
       cvCtx.drawImage(videoEl, 0, 0, cvW, cvH);
       const data = cvCtx.getImageData(0, 0, cvW, cvH).data;
@@ -1189,25 +1209,22 @@
         gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
       }
 
-      // 1) Procura um tabuleiro de xadrez real na camera (ChESS detector invariante a rotacao)
       const hasRealChessboard = detectPhysicalChessboard(gray);
-
-      // 2) Se nao houver tabuleiro fisico, rastreia a superficie plana em 6DoF (estilo Minecraft Earth / Pokemon GO)
       if (!hasRealChessboard) {
-        trackSurface6DoF(gray);
+        trackCameraEgoMotion6DoF(gray);
       }
     }
 
     // =========================================================================
-    // 8. MEDIAPIPE HANDS + PINCELADA POR CONTATO FISICO + MAO TRANSPARENTE
+    // 8. MEDIAPIPE HANDS + FUNCAO DE PINCA PRECISA E RESPONSIVA
     // =========================================================================
     const handTracker = {
       isPinching: false,
-      confirmFrames: 0,
       sx: 0,
       sy: 0,
       initialized: false,
-      lmScreen: null
+      lmScreen: null,
+      pinchRatio: 1.0
     };
     let latestLandmarks = [];
     let isProcessingHand = false;
@@ -1233,42 +1250,34 @@
       latestLandmarks = results.multiHandLandmarks || [];
 
       if (latestLandmarks.length === 0) {
+        appState.handVisible = false;
         if (handTracker.isPinching) {
           handTracker.isPinching = false;
           endPinchAction(handTracker.sx, handTracker.sy);
         }
-        handTracker.confirmFrames = 0;
         handTracker.initialized = false;
         handTracker.lmScreen = null;
         appState.hoveredPiece = null;
-        appState.handBBox = null;
         return;
       }
+
+      appState.handVisible = true;
+      appState.lastHandSeenTime = performance.now();
 
       const lm = latestLandmarks[0];
       const pts = lm.map(p => videoToScreen(p.x, p.y));
       handTracker.lmScreen = pts;
 
-      // Calcula bounding box da mao em coordenadas CV (160x120) para isolar a mao do rastreador de superficie
-      let minX = 1, maxX = 0, minY = 1, maxY = 0;
-      for (const p of lm) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-      }
-      appState.handBBox = {
-        minX: Math.max(0, Math.floor(minX * cvW) - 10),
-        maxX: Math.min(cvW, Math.ceil(maxX * cvW) + 10),
-        minY: Math.max(0, Math.floor(minY * cvH) - 10),
-        maxY: Math.min(cvH, Math.ceil(maxY * cvH) + 10)
-      };
+      // Escala da mao robusta a inclinacao 3D (usa o maior eixo visivel da palma em pixels de tela)
+      const dWristMiddle = Math.hypot(pts[0].x - pts[9].x, pts[0].y - pts[9].y);
+      const dPalmWidth = Math.hypot(pts[5].x - pts[17].x, pts[5].y - pts[17].y) * 1.18;
+      const dWristIndex = Math.hypot(pts[0].x - pts[5].x, pts[0].y - pts[5].y);
+      const handScalePx = Math.max(dWristMiddle, dPalmWidth, dWristIndex, 32);
 
-      const aspectV = (videoEl.videoHeight || 720) / Math.max(videoEl.videoWidth || 1280, 1);
-      const tipDist = Math.hypot(lm[4].x - lm[8].x, (lm[4].y - lm[8].y) * aspectV);
-      const palmLen = Math.hypot(lm[0].x - lm[9].x, (lm[0].y - lm[9].y) * aspectV);
-      const indexDipPipDist = Math.hypot(lm[8].x - lm[6].x, (lm[8].y - lm[6].y) * aspectV);
-      const ratio = tipDist / Math.max(palmLen, 0.08);
+      // Distancia entre a ponta do polegar (4) e a ponta do indicador (8)
+      const tipDistPx = Math.hypot(pts[4].x - pts[8].x, pts[4].y - pts[8].y);
+      const ratio = tipDistPx / handScalePx;
+      handTracker.pinchRatio = ratio;
 
       const rawX = (pts[4].x + pts[8].x) * 0.5;
       const rawY = (pts[4].y + pts[8].y) * 0.5;
@@ -1277,28 +1286,16 @@
         handTracker.sy = rawY;
         handTracker.initialized = true;
       } else {
-        handTracker.sx += (rawX - handTracker.sx) * 0.42;
-        handTracker.sy += (rawY - handTracker.sy) * 0.42;
+        handTracker.sx += (rawX - handTracker.sx) * 0.45;
+        handTracker.sy += (rawY - handTracker.sy) * 0.45;
       }
 
-      // So ativa quando ponta do polegar (4) encosta fisicamente na ponta do indicador (8)
-      const touchingNow = ratio < 0.17 && tipDist < 0.035 && tipDist < indexDipPipDist * 0.92;
-      const releasedNow = ratio > 0.24 || tipDist > 0.048;
-
-      if (!handTracker.isPinching) {
-        if (touchingNow) {
-          handTracker.confirmFrames++;
-          if (handTracker.confirmFrames >= 2) {
-            handTracker.isPinching = true;
-            handTracker.confirmFrames = 0;
-            startPinchAction(handTracker.sx, handTracker.sy);
-          }
-        } else {
-          handTracker.confirmFrames = 0;
-        }
-      } else if (releasedNow) {
+      // Pinca calibrada: exige encostar polegar no indicador (ratio < 0.25), sem travas que falhem com a mao perto da camera
+      if (!handTracker.isPinching && ratio < 0.25) {
+        handTracker.isPinching = true;
+        startPinchAction(handTracker.sx, handTracker.sy);
+      } else if (handTracker.isPinching && ratio > 0.34) {
         handTracker.isPinching = false;
-        handTracker.confirmFrames = 0;
         endPinchAction(handTracker.sx, handTracker.sy);
       }
 
@@ -1324,7 +1321,8 @@
       const isPinch = handTracker.isPinching;
       handCtx.save();
 
-      handCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      // Contorno muito leve e transparente para enxergar perfeitamente todas as pecas atras da mao
+      handCtx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
       handCtx.lineWidth = 1.2;
       handCtx.lineCap = 'round';
       handCtx.lineJoin = 'round';
@@ -1338,18 +1336,19 @@
         handCtx.stroke();
       }
 
+      // Aneis vazados nas pontas do polegar (4) e indicador (8)
       for (const tipIdx of [4, 8]) {
         handCtx.beginPath();
-        handCtx.arc(pts[tipIdx].x, pts[tipIdx].y, 4, 0, Math.PI * 2);
-        handCtx.lineWidth = isPinch ? 1.8 : 1.4;
-        handCtx.strokeStyle = isPinch ? 'rgba(200, 62, 123, 0.78)' : 'rgba(130, 200, 243, 0.55)';
+        handCtx.arc(pts[tipIdx].x, pts[tipIdx].y, 4.5, 0, Math.PI * 2);
+        handCtx.lineWidth = isPinch ? 2.0 : 1.5;
+        handCtx.strokeStyle = isPinch ? 'rgba(200, 62, 123, 0.85)' : 'rgba(130, 200, 243, 0.65)';
         handCtx.stroke();
       }
 
       if (isPinch) {
         handCtx.beginPath();
-        handCtx.arc(handTracker.sx, handTracker.sy, 2.5, 0, Math.PI * 2);
-        handCtx.fillStyle = 'rgba(200, 62, 123, 0.82)';
+        handCtx.arc(handTracker.sx, handTracker.sy, 3.2, 0, Math.PI * 2);
+        handCtx.fillStyle = 'rgba(200, 62, 123, 0.88)';
         handCtx.fill();
       }
 
@@ -1364,8 +1363,8 @@
       mpHands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.62,
-        minTrackingConfidence: 0.62
+        minDetectionConfidence: 0.58,
+        minTrackingConfidence: 0.58
       });
       mpHands.onResults(onHandResults);
     }
@@ -1409,15 +1408,13 @@
     function animate(now) {
       requestAnimationFrame(animate);
 
-      // Suavizacao dos 6 graus de liberdade (X, Y, Z, Pitch, Yaw, Roll)
-      appState.anchorU += (appState.targetAnchorU - appState.anchorU) * 0.22;
-      appState.anchorV += (appState.targetAnchorV - appState.anchorV) * 0.22;
-      appState.boardDepth += (appState.targetBoardDepth - appState.boardDepth) * 0.16;
-      appState.boardPitch += (appState.targetBoardPitch - appState.boardPitch) * 0.18;
-      appState.boardYaw += (appState.targetBoardYaw - appState.boardYaw) * 0.18;
-      appState.boardRoll += (appState.targetBoardRoll - appState.boardRoll) * 0.18;
+      appState.anchorU += (appState.targetAnchorU - appState.anchorU) * 0.18;
+      appState.anchorV += (appState.targetAnchorV - appState.anchorV) * 0.18;
+      appState.boardDepth += (appState.targetBoardDepth - appState.boardDepth) * 0.14;
+      appState.boardPitch += (appState.targetBoardPitch - appState.boardPitch) * 0.16;
+      appState.boardYaw += (appState.targetBoardYaw - appState.boardYaw) * 0.16;
+      appState.boardRoll += (appState.targetBoardRoll - appState.boardRoll) * 0.16;
 
-      // Converte ancora 2D + profundidade para coordenada 3D exata no frustum da camera
       const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * appState.boardDepth;
       const halfW = halfH * camera.aspect;
       boardGroup.position.set(
@@ -1426,13 +1423,11 @@
         -appState.boardDepth
       );
 
-      // Compõe a orientacao 3D completa do plano da superficie (Roll da camera * Pitch da mesa * Yaw no plano)
       qRoll.setFromAxisAngle(axisZ, appState.boardRoll);
       qPitch.setFromAxisAngle(axisX, appState.boardPitch);
       qYaw.setFromAxisAngle(axisY, appState.boardYaw);
       boardGroup.quaternion.copy(qRoll).multiply(qPitch).multiply(qYaw);
 
-      // Move a luz direcional solidaria ao plano do tabuleiro para sombras realistas em qualquer angulo
       keyLight.position.set(
         boardGroup.position.x + 4,
         boardGroup.position.y + 12,
@@ -1489,9 +1484,9 @@
         });
       }
 
-      if (now - lastCvTime > 45) {
+      if (now - lastCvTime > 55) {
         lastCvTime = now;
-        runArVisionStep();
+        runArVisionStep(now);
       }
     }
 
