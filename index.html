@@ -8,23 +8,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <style>
-    :root {
-      --rosa-principal: #F6B3D0;
-      --rosa-escuro: #C83E7B;
-      --azul-celeste: #82C8F3;
-      --azul-ativo: #1D6FA5;
-      --fundo-creme: #FFFED6;
-      --texto-principal: #0F172A;
-    }
-
     *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
       border: none !important;
       outline: none !important;
-      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-      -webkit-tap-highlight-color: transparent;
       user-select: none;
     }
 
@@ -33,13 +22,7 @@
       height: 100%;
       overflow: hidden;
       background-color: #F8FAFC;
-      color: var(--texto-principal);
       position: relative;
-    }
-
-    div, button, canvas, video {
-      border: none !important;
-      outline: none !important;
     }
 
     .ambient-bg {
@@ -50,29 +33,6 @@
       background: linear-gradient(180deg, #FDFCFB 0%, #F4F8FC 50%, #FEF9FB 100%);
     }
 
-    .ambient-orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(95px);
-      opacity: 0.52;
-    }
-
-    .orb-rose {
-      width: 620px;
-      height: 620px;
-      top: 10%;
-      left: 14%;
-      background: radial-gradient(circle, rgba(246, 179, 208, 0.5) 0%, transparent 72%);
-    }
-
-    .orb-blue {
-      width: 680px;
-      height: 680px;
-      bottom: 8%;
-      right: 12%;
-      background: radial-gradient(circle, rgba(130, 200, 243, 0.5) 0%, transparent 72%);
-    }
-
     #cameraVideo {
       position: fixed;
       inset: 0;
@@ -81,7 +41,7 @@
       object-fit: cover;
       z-index: 2;
       opacity: 0;
-      transition: opacity 0.35s ease;
+      transition: opacity 0.3s ease;
     }
 
     #cameraVideo.active {
@@ -102,7 +62,6 @@
       touch-action: none;
     }
 
-    /* Mao e cursor de pincelada sempre na frente do tabuleiro 3D */
     #handOverlayCanvas {
       position: fixed;
       inset: 0;
@@ -112,76 +71,23 @@
       pointer-events: none;
       display: block;
     }
-
-    /* Unico elemento discreto de alternancia nao invasivo */
-    #modeTogglePill {
-      position: fixed;
-      right: 16px;
-      bottom: 16px;
-      z-index: 30;
-      background: rgba(255, 255, 255, 0.72);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      color: var(--texto-principal);
-      border-radius: 14px;
-      padding: 8px 14px;
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.1px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      opacity: 0.72;
-      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
-      transition: opacity 0.18s ease, transform 0.16s ease, background 0.18s ease;
-    }
-
-    #modeTogglePill:hover,
-    #modeTogglePill.pinch-hover {
-      opacity: 0.96;
-      background: rgba(255, 255, 255, 0.94);
-      transform: translateY(-1px);
-    }
-
-    .mode-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--azul-celeste);
-      flex-shrink: 0;
-    }
-
-    .mode-dot.real {
-      background: var(--rosa-escuro);
-    }
   </style>
 </head>
 <body>
-  <div class="ambient-bg" aria-hidden="true">
-    <div class="ambient-orb orb-rose"></div>
-    <div class="ambient-orb orb-blue"></div>
-  </div>
-
+  <div class="ambient-bg" aria-hidden="true"></div>
   <video id="cameraVideo" class="mirrored" autoplay playsinline muted></video>
   <canvas id="threeCanvas"></canvas>
   <canvas id="handOverlayCanvas"></canvas>
-
-  <button id="modeTogglePill" type="button" title="Alternar entre tabuleiro virtual e real">
-    <span class="mode-dot" id="modeDot"></span>
-    <span id="modeLabel">Tabuleiro Virtual</span>
-  </button>
 
   <script>
   (function () {
     'use strict';
 
     // =========================================================================
-    // 1. AUDIO PROCEDURAL LEVE (Web Audio API)
+    // 1. AUDIO PROCEDURAL (Web Audio API)
     // =========================================================================
     const SoundFX = (() => {
       let ctx = null;
-      let lastResizeTick = 0;
 
       function ensureCtx() {
         if (!ctx) {
@@ -218,58 +124,46 @@
       return {
         unlock: ensureCtx,
         pinchGrab() {
-          tone(520, 800, 0.06, 'sine', 0.09);
+          tone(540, 820, 0.055, 'sine', 0.08);
         },
         piecePlace() {
-          tone(175, 62, 0.10, 'triangle', 0.16);
+          tone(175, 62, 0.095, 'triangle', 0.15);
         },
-        pieceCemetery() {
-          tone(145, 50, 0.14, 'triangle', 0.16);
-          tone(440, 660, 0.12, 'sine', 0.07, 0.02);
-        },
-        boardResize(scale) {
-          const now = performance.now();
-          if (now - lastResizeTick < 75) return;
-          lastResizeTick = now;
-          const pitch = 300 + scale * 220;
-          tone(pitch, pitch * 1.05, 0.03, 'sine', 0.035);
+        pieceSide() {
+          tone(145, 50, 0.12, 'triangle', 0.14);
+          tone(440, 620, 0.10, 'sine', 0.06, 0.02);
         },
         boardDetected() {
-          tone(523.25, 659.25, 0.12, 'sine', 0.06, 0);
-          tone(783.99, 1046.5, 0.14, 'sine', 0.06, 0.07);
+          tone(523.25, 659.25, 0.11, 'sine', 0.055, 0);
+          tone(783.99, 1046.5, 0.13, 'sine', 0.055, 0.065);
         }
       };
     })();
 
     // =========================================================================
-    // 2. ELEMENTOS E ESTADO
+    // 2. ELEMENTOS E ESTADO AR AUTOMATICO
     // =========================================================================
     const videoEl = document.getElementById('cameraVideo');
     const threeCanvas = document.getElementById('threeCanvas');
     const handCanvas = document.getElementById('handOverlayCanvas');
     const handCtx = handCanvas.getContext('2d');
-    const modeTogglePill = document.getElementById('modeTogglePill');
-    const modeDot = document.getElementById('modeDot');
-    const modeLabel = document.getElementById('modeLabel');
 
     const appState = {
-      boardMode: 'virtual',   // 'virtual' | 'real'
-      autoSearchReal: true,
-      realBoardFound: false,
+      boardMode: 'virtual',   // 'virtual' (ancora em mesa) | 'real' (tabuleiro fisico)
       mirrorVideo: true,
       videoReady: false,
       boardScale: 1.0,
       targetBoardScale: 1.0,
       boardPos: new THREE.Vector3(0, 0, 0),
       targetBoardPos: new THREE.Vector3(0, 0, 0),
+      boardYaw: 0,
+      targetBoardYaw: 0,
       heldPiece: null,
-      resizeDrag: null,
-      dualPinch: null,
-      lastPinchBtnTime: 0
+      hoveredPiece: null
     };
 
     // =========================================================================
-    // 3. CENA 3D AR LIMPA (TABULEIRO + 32 PECAS)
+    // 3. CENA 3D AR LIMPA (ZERO UI, ZERO CEMITERIO VISIVEL)
     // =========================================================================
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.1, 120);
@@ -324,9 +218,9 @@
     const boardGroup = new THREE.Group();
     scene.add(boardGroup);
 
-    // Base minimalista sem bordas no Modo Virtual AR
+    // Base do tabuleiro virtual AR
     const boardBaseMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(8.55, 0.20, 8.55),
+      new THREE.BoxGeometry(8.45, 0.20, 8.45),
       new THREE.MeshStandardMaterial({
         color: 0xFFFFFF,
         roughness: 0.35,
@@ -339,15 +233,14 @@
     boardBaseMesh.receiveShadow = true;
     boardGroup.add(boardBaseMesh);
 
-    // Plano de sombras transparente para Modo Tabuleiro Real
+    // Plano receptor de sombra sobre a superficie real (mesa ou tabuleiro fisico)
     const realShadowPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(8.5, 8.5),
+      new THREE.PlaneGeometry(16, 12),
       new THREE.ShadowMaterial({ opacity: 0.28 })
     );
     realShadowPlane.rotation.x = -Math.PI / 2;
-    realShadowPlane.position.y = 0.01;
+    realShadowPlane.position.y = 0.005;
     realShadowPlane.receiveShadow = true;
-    realShadowPlane.visible = false;
     boardGroup.add(realShadowPlane);
 
     const lightTileMat = new THREE.MeshStandardMaterial({
@@ -376,27 +269,20 @@
       }
     }
 
-    // Discretos marcadores nos 4 cantos da moldura apenas para sugerir redimensionamento
-    const cornerDots = [];
-    const cornerPositions = [
-      [-4.16, 0.02, -4.16],
-      [4.16, 0.02, -4.16],
-      [-4.16, 0.02, 4.16],
-      [4.16, 0.02, 4.16]
-    ];
-    const cornerDotGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.03, 16);
-    cornerPositions.forEach(([cx, cy, cz]) => {
-      const m = new THREE.Mesh(
-        cornerDotGeo,
-        new THREE.MeshBasicMaterial({ color: 0x82C8F3, transparent: true, opacity: 0.48 })
-      );
-      m.position.set(cx, cy, cz);
-      boardGroup.add(m);
-      cornerDots.push(m);
+    // Anel sutil no plano da mesa/casa abaixo da peca apontada ou segurada
+    const focusRingMat = new THREE.MeshBasicMaterial({
+      color: 0x82C8F3,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide
     });
+    const focusRingMesh = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.44, 28), focusRingMat);
+    focusRingMesh.rotation.x = -Math.PI / 2;
+    focusRingMesh.position.y = 0.045;
+    boardGroup.add(focusRingMesh);
 
     // =========================================================================
-    // 4. MODELOS 3D PROCEDURAIS DAS PECAS
+    // 4. PECAS 3D STAUNTON
     // =========================================================================
     function createWhiteMat() {
       return new THREE.MeshStandardMaterial({
@@ -499,13 +385,11 @@
     }
 
     // =========================================================================
-    // 5. TABULEIRO FISICO LIVRE (SEM REGRAS, SEM VEZ, COM CEMITERIO LATERAL)
+    // 5. TABULEIRO LIVRE (SEM REGRAS, SEM VEZ, SEM CEMITERIO VISUAL)
     // =========================================================================
     const pieces = [];
     const pieceHitMeshes = [];
-    let grid = Array.from({ length: 8 }, () => Array(8).fill(null));
-    const cemeteryW = [];
-    const cemeteryB = [];
+    const grid = Array.from({ length: 8 }, () => Array(8).fill(null));
 
     function inBounds(r, c) {
       return r >= 0 && r < 8 && c >= 0 && c < 8;
@@ -518,12 +402,10 @@
         color,
         row,
         col,
-        inCemetery: false,
         mesh: built.group,
         mat: built.mat,
         hitMesh: built.hitMesh,
-        targetPos: new THREE.Vector3(col - 3.5, 0.03, row - 3.5),
-        targetScale: 1.0
+        targetPos: new THREE.Vector3(col - 3.5, 0.03, row - 3.5)
       };
       built.hitMesh.userData = { piece };
       built.group.position.copy(piece.targetPos);
@@ -543,99 +425,77 @@
       }
     }
 
-    function removePieceFromBoardOrCemetery(piece) {
+    function clearGridCell(piece) {
       if (piece.row >= 0 && piece.col >= 0 && grid[piece.row]?.[piece.col] === piece) {
         grid[piece.row][piece.col] = null;
       }
-      const iw = cemeteryW.indexOf(piece);
-      if (iw >= 0) cemeteryW.splice(iw, 1);
-      const ib = cemeteryB.indexOf(piece);
-      if (ib >= 0) cemeteryB.splice(ib, 1);
     }
 
-    function findFreeCemeterySpot(desiredX, desiredZ, color, ignorePiece) {
-      const sideSign = desiredX < 0 ? -1 : 1;
-      let cx = Math.max(-7.5, Math.min(7.5, Math.abs(desiredX) >= 4.2 ? desiredX : sideSign * 5.2));
-      let cz = Math.max(-4.2, Math.min(4.2, desiredZ));
-
-      const overlaps = (x, z) => {
-        for (const p of pieces) {
-          if (p === ignorePiece || !p.inCemetery) continue;
-          if (Math.hypot(p.targetPos.x - x, p.targetPos.z - z) < 0.72) return true;
-        }
-        return false;
-      };
-
-      if (!overlaps(cx, cz)) {
-        return { x: cx, z: cz };
-      }
-
-      // Se houver outra peca no mesmo ponto, acomoda ao lado sem empilhar
-      const arr = color === 'b' ? cemeteryB : cemeteryW;
-      const baseX = (desiredX < 0 || (Math.abs(desiredX) < 4.2 && color === 'b')) ? -5.15 : 5.15;
-      const dirX = baseX < 0 ? -1 : 1;
-      for (let idx = 0; idx < 16; idx++) {
-        const col = idx % 2;
-        const row = Math.floor(idx / 2);
-        const sx = baseX + dirX * col * 0.92;
-        const sz = -3.3 + row * 0.94;
-        if (!overlaps(sx, sz)) {
-          return { x: sx, z: sz };
-        }
-      }
-      return { x: cx + (arr.length % 3) * 0.4, z: cz };
-    }
-
-    function placePieceInCemetery(piece, desiredX = null, desiredZ = null) {
-      removePieceFromBoardOrCemetery(piece);
-      const defaultSide = piece.color === 'b' ? -5.15 : 5.15;
-      const dx = desiredX !== null ? desiredX : defaultSide;
-      const dz = desiredZ !== null ? desiredZ : 0;
-      const spot = findFreeCemeterySpot(dx, dz, piece.color, piece);
-
-      piece.inCemetery = true;
+    function slideDisplacedPieceBesideBoard(piece, preferredZ) {
+      clearGridCell(piece);
       piece.row = -1;
       piece.col = -1;
-      piece.targetScale = 0.80;
-      piece.targetPos.set(spot.x, 0.02, spot.z);
-      if (piece.color === 'b') cemeteryB.push(piece);
-      else cemeteryW.push(piece);
-      SoundFX.pieceCemetery();
-    }
-
-    function placePieceOnSquare(piece, targetRow, targetCol) {
-      const existing = grid[targetRow][targetCol];
-      if (existing && existing !== piece) {
-        const sideX = existing.color === 'b' ? -5.15 : 5.15;
-        placePieceInCemetery(existing, sideX, (targetRow - 3.5) * 0.85);
-      } else {
-        SoundFX.piecePlace();
+      const sideSign = piece.color === 'b' ? -1 : 1;
+      let tx = sideSign * 4.95;
+      let tz = Math.max(-3.6, Math.min(3.6, preferredZ));
+      // Evita sobreposicao exata com outra peca fora do tabuleiro
+      for (let attempt = 0; attempt < 16; attempt++) {
+        let collision = false;
+        for (const other of pieces) {
+          if (other !== piece && other.row === -1 && Math.hypot(other.targetPos.x - tx, other.targetPos.z - tz) < 0.72) {
+            collision = true;
+            break;
+          }
+        }
+        if (!collision) break;
+        const col = attempt % 2;
+        const row = Math.floor(attempt / 2);
+        tx = sideSign * (4.9 + col * 0.85);
+        tz = -3.2 + row * 0.92;
       }
-
-      removePieceFromBoardOrCemetery(piece);
-      piece.inCemetery = false;
-      piece.row = targetRow;
-      piece.col = targetCol;
-      piece.targetScale = 1.0;
-      piece.targetPos.set(targetCol - 3.5, 0.03, targetRow - 3.5);
-      grid[targetRow][targetCol] = piece;
+      piece.targetPos.set(tx, 0.01, tz);
     }
 
-    function setBoardMode(mode) {
+    function placePieceOnTable(piece, localX, localZ) {
+      const targetCol = Math.round(localX + 3.5);
+      const targetRow = Math.round(localZ + 3.5);
+
+      if (inBounds(targetRow, targetCol) && Math.abs(localX) <= 4.05 && Math.abs(localZ) <= 4.05) {
+        const occupant = grid[targetRow][targetCol];
+        if (occupant && occupant !== piece) {
+          slideDisplacedPieceBesideBoard(occupant, targetRow - 3.5);
+          SoundFX.pieceSide();
+        } else {
+          SoundFX.piecePlace();
+        }
+        clearGridCell(piece);
+        piece.row = targetRow;
+        piece.col = targetCol;
+        piece.targetPos.set(targetCol - 3.5, 0.03, targetRow - 3.5);
+        grid[targetRow][targetCol] = piece;
+      } else {
+        // Soltou ao lado do tabuleiro -> pousa diretamente sobre o plano da mesa onde foi solta
+        clearGridCell(piece);
+        piece.row = -1;
+        piece.col = -1;
+        const cx = Math.max(-8.0, Math.min(8.0, localX));
+        const cz = Math.max(-5.0, Math.min(5.0, localZ));
+        piece.targetPos.set(cx, 0.01, cz);
+        SoundFX.pieceSide();
+      }
+    }
+
+    function applyBoardVisualMode(mode) {
+      if (appState.boardMode === mode) return;
       appState.boardMode = mode;
       const isReal = mode === 'real';
-
       boardBaseMesh.visible = !isReal;
-      realShadowPlane.visible = isReal;
-      lightTileMat.opacity = isReal ? 0.14 : 0.92;
-      darkTileMat.opacity = isReal ? 0.24 : 0.90;
-
-      modeDot.classList.toggle('real', isReal);
-      modeLabel.textContent = isReal ? 'Tabuleiro Real' : 'Tabuleiro Virtual';
+      lightTileMat.opacity = isReal ? 0.05 : 0.92;
+      darkTileMat.opacity = isReal ? 0.09 : 0.90;
     }
 
     // =========================================================================
-    // 6. INTERACAO POR PINCELADA (PEGAR, MOVER, CEMITERIO E REDIMENSIONAR)
+    // 6. INTERACAO POR PINCELADA (SOMENTE PEGAR E SOLTAR PECAS)
     // =========================================================================
     const raycaster = new THREE.Raycaster();
     const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.95);
@@ -664,10 +524,6 @@
       return raycaster.ray.intersectPlane(dragPlane, hit) ? hit : null;
     }
 
-    function isNearBoardCorner(local) {
-      return Math.hypot(Math.abs(local.x) - 4.16, Math.abs(local.z) - 4.16) < 1.1;
-    }
-
     function findPieceNear(sx, sy) {
       raycaster.setFromCamera(screenToNdc(sx, sy), camera);
       const hits = raycaster.intersectObjects(pieceHitMeshes, false);
@@ -679,9 +535,8 @@
       if (!groundWorld) return null;
       const local = worldToBoardLocal(groundWorld);
 
-      // Busca por proximidade tanto no tabuleiro quanto no cemiterio lateral
       let bestPiece = null;
-      let bestDist = 0.72;
+      let bestDist = 0.68;
       for (const p of pieces) {
         const d = Math.hypot(p.targetPos.x - local.x, p.targetPos.z - local.z);
         if (d < bestDist) {
@@ -692,108 +547,45 @@
       return bestPiece;
     }
 
-    function startPinchAction(sx, sy, isHandPinch = true) {
+    function startPinchAction(sx, sy) {
       SoundFX.unlock();
-
-      if (isHandPinch) {
-        const el = document.elementFromPoint(sx, sy);
-        const btn = el && el.closest ? el.closest('button') : null;
-        if (btn) {
-          const now = performance.now();
-          if (now - appState.lastPinchBtnTime > 650) {
-            appState.lastPinchBtnTime = now;
-            SoundFX.pinchGrab();
-            btn.click();
-          }
-          return true;
-        }
-      }
-
-      if (appState.heldPiece || appState.resizeDrag) return false;
-
-      // 1) Tenta pegar qualquer peca (no tabuleiro ou no cemiterio lateral)
+      if (appState.heldPiece) return;
       const piece = findPieceNear(sx, sy);
       if (piece) {
         appState.heldPiece = piece;
-        appState.heldPiece.originPos = piece.targetPos.clone();
-        appState.heldPiece.originRow = piece.row;
-        appState.heldPiece.originCol = piece.col;
-        appState.heldPiece.originInCemetery = piece.inCemetery;
         SoundFX.pinchGrab();
-        return true;
       }
-
-      // 2) Se pincou em um dos 4 cantos/bordas externas do tabuleiro, redimensiona pela pincelada
-      const ground = raycastBoardGround(sx, sy);
-      if (ground) {
-        const local = worldToBoardLocal(ground);
-        if (isNearBoardCorner(local)) {
-          const distFromCenter = Math.hypot(ground.x - boardGroup.position.x, ground.z - boardGroup.position.z);
-          appState.resizeDrag = {
-            startDist: Math.max(distFromCenter, 0.7),
-            startScale: appState.targetBoardScale
-          };
-          SoundFX.pinchGrab();
-          return true;
-        }
-      }
-
-      return false;
     }
 
     function movePinchAction(sx, sy) {
-      if (appState.resizeDrag) {
-        const ground = raycastBoardGround(sx, sy);
-        if (ground) {
-          const dist = Math.hypot(ground.x - boardGroup.position.x, ground.z - boardGroup.position.z);
-          const ratio = dist / appState.resizeDrag.startDist;
-          appState.targetBoardScale = Math.min(2.30, Math.max(0.45, appState.resizeDrag.startScale * ratio));
-          SoundFX.boardResize(appState.targetBoardScale);
-        }
-        return;
-      }
-
       if (appState.heldPiece) {
         const dragWorld = raycastDragPlane(sx, sy);
         if (dragWorld) {
           const local = worldToBoardLocal(dragWorld);
-          appState.heldPiece.targetPos.set(local.x, 1.25, local.z);
+          appState.heldPiece.targetPos.set(local.x, 1.35, local.z);
         }
+      } else {
+        appState.hoveredPiece = findPieceNear(sx, sy);
       }
     }
 
     function endPinchAction(sx, sy) {
-      if (appState.resizeDrag) {
-        appState.resizeDrag = null;
-        return;
-      }
-
       const piece = appState.heldPiece;
       if (!piece) return;
       appState.heldPiece = null;
 
       const dragWorld = raycastDragPlane(sx, sy) || raycastBoardGround(sx, sy);
       const local = dragWorld ? worldToBoardLocal(dragWorld) : piece.targetPos.clone();
-
-      // Soltou fora do grid 8x8 -> coloca ao lado do tabuleiro (cemiterio de pecas)
-      const targetCol = Math.round(local.x + 3.5);
-      const targetRow = Math.round(local.z + 3.5);
-
-      if (inBounds(targetRow, targetCol) && Math.abs(local.x) <= 4.05 && Math.abs(local.z) <= 4.05) {
-        placePieceOnSquare(piece, targetRow, targetCol);
-      } else {
-        placePieceInCemetery(piece, local.x, local.z);
-      }
+      placePieceOnTable(piece, local.x, local.z);
     }
 
-    // Fallback simples para mouse/touch caso usuario teste sem mao
     let pointerDownActive = false;
     threeCanvas.addEventListener('pointerdown', (e) => {
       pointerDownActive = true;
-      startPinchAction(e.clientX, e.clientY, false);
+      startPinchAction(e.clientX, e.clientY);
     });
     window.addEventListener('pointermove', (e) => {
-      if (pointerDownActive) movePinchAction(e.clientX, e.clientY);
+      movePinchAction(e.clientX, e.clientY);
     });
     window.addEventListener('pointerup', (e) => {
       if (pointerDownActive) {
@@ -801,45 +593,235 @@
         endPinchAction(e.clientX, e.clientY);
       }
     });
-    threeCanvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.08 : 0.08;
-      appState.targetBoardScale = Math.min(2.30, Math.max(0.45, appState.targetBoardScale + delta));
-      SoundFX.boardResize(appState.targetBoardScale);
-    }, { passive: false });
 
     // =========================================================================
-    // 7. DETECTOR DE TABULEIRO FISICO NA CAMERA
+    // 7. TRACKER AR AUTOMATICO (TABULEIRO REAL + ANCORA DE SUPERFICIE TIPO MINECRAFT EARTH)
     // =========================================================================
+    const cvW = 160;
+    const cvH = 120;
     const cvCanvas = document.createElement('canvas');
-    cvCanvas.width = 160;
-    cvCanvas.height = 120;
+    cvCanvas.width = cvW;
+    cvCanvas.height = cvH;
     const cvCtx = cvCanvas.getContext('2d', { willReadFrequently: true });
-    let lastCvScan = 0;
-    let consecutiveBoardHits = 0;
+    let lastCvTime = 0;
 
-    function scanForPhysicalChessboard() {
-      if (!appState.videoReady || videoEl.videoWidth === 0) return;
-      if (!appState.autoSearchReal && appState.boardMode !== 'real') return;
+    // Estado do rastreador de tabuleiro fisico
+    let realBoardHits = 0;
+    let realBoardMisses = 0;
 
-      const W = 160, H = 120;
-      cvCtx.drawImage(videoEl, 0, 0, W, H);
-      const data = cvCtx.getImageData(0, 0, W, H).data;
-      const gray = new Uint8Array(W * H);
-      for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-        gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    // Estado do rastreador de superficie plana (Optical Flow SAD em patches)
+    const surfacePatches = [];
+    let gyroPitchBias = 0;
+    let gyroRollBias = 0;
+    let lastGyroBeta = null;
+    let lastGyroGamma = null;
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', (ev) => {
+        if (ev.beta === null || ev.gamma === null) return;
+        if (lastGyroBeta !== null) {
+          let db = ev.beta - lastGyroBeta;
+          let dg = ev.gamma - lastGyroGamma;
+          if (Math.abs(db) < 15 && Math.abs(dg) < 15) {
+            gyroPitchBias += db;
+            gyroRollBias += dg;
+          }
+        }
+        lastGyroBeta = ev.beta;
+        lastGyroGamma = ev.gamma;
+      }, { passive: true });
+    }
+
+    function extractPatch(gray, cx, cy, half = 3) {
+      const size = half * 2 + 1;
+      const buf = new Uint8Array(size * size);
+      let mean = 0;
+      let k = 0;
+      for (let dy = -half; dy <= half; dy++) {
+        const rowOff = (cy + dy) * cvW;
+        for (let dx = -half; dx <= half; dx++) {
+          const val = gray[rowOff + cx + dx];
+          buf[k++] = val;
+          mean += val;
+        }
+      }
+      mean /= buf.length;
+      let variance = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const d = buf[i] - mean;
+        variance += d * d;
+      }
+      return { buf, variance: variance / buf.length };
+    }
+
+    function seedSurfacePatches(gray) {
+      surfacePatches.length = 0;
+      // Procura regioes na metade inferior-central (onde mesas/superficies planas aparecem)
+      const candidates = [];
+      for (let y = 42; y <= 104; y += 10) {
+        for (let x = 26; x <= 134; x += 12) {
+          const { buf, variance } = extractPatch(gray, x, y, 3);
+          // Queremos micro-textura suficiente para rastrear, mas sem bordas extremas de objetos altos
+          if (variance >= 28 && variance <= 1800) {
+            candidates.push({ x, y, buf, variance });
+          }
+        }
       }
 
+      // Escolhe ate 6 patches bem distribuidos pela superficie
+      candidates.sort((a, b) => b.variance - a.variance);
+      for (const c of candidates) {
+        let tooClose = false;
+        for (const p of surfacePatches) {
+          if (Math.hypot(p.x - c.x, p.y - c.y) < 20) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) {
+          surfacePatches.push({ x: c.x, y: c.y, buf: c.buf });
+          if (surfacePatches.length >= 6) break;
+        }
+      }
+    }
+
+    function trackSurfacePlane(gray) {
+      if (surfacePatches.length < 3) {
+        seedSurfacePatches(gray);
+        return;
+      }
+
+      const half = 3;
+      const searchR = 9;
+      const tracked = [];
+
+      for (const p of surfacePatches) {
+        if (p.x < half + searchR + 2 || p.x >= cvW - half - searchR - 2 ||
+            p.y < half + searchR + 2 || p.y >= cvH - half - searchR - 2) {
+          continue;
+        }
+
+        let bestSad = Infinity;
+        let bestX = p.x;
+        let bestY = p.y;
+
+        for (let sy = -searchR; sy <= searchR; sy++) {
+          for (let sx = -searchR; sx <= searchR; sx++) {
+            const cx = p.x + sx;
+            const cy = p.y + sy;
+            let sad = 0;
+            let k = 0;
+            for (let dy = -half; dy <= half; dy++) {
+              const rowOff = (cy + dy) * cvW;
+              for (let dx = -half; dx <= half; dx++) {
+                sad += Math.abs(gray[rowOff + cx + dx] - p.buf[k++]);
+              }
+            }
+            if (sad < bestSad) {
+              bestSad = sad;
+              bestX = cx;
+              bestY = cy;
+            }
+          }
+        }
+
+        // Aceita apenas correspondencia fiel da superficie (ignora oclusao da mao)
+        if (bestSad / 49 < 22) {
+          tracked.push({
+            oldX: p.x,
+            oldY: p.y,
+            newX: bestX,
+            newY: bestY,
+            dx: bestX - p.x,
+            dy: bestY - p.y,
+            patch: p
+          });
+        }
+      }
+
+      if (tracked.length >= 3) {
+        const dxs = tracked.map(t => t.dx).sort((a, b) => a - b);
+        const dys = tracked.map(t => t.dy).sort((a, b) => a - b);
+        const medDx = dxs[Math.floor(dxs.length / 2)];
+        const medDy = dys[Math.floor(dys.length / 2)];
+
+        // Deadzone contra ruido estatico de webcam parada
+        const moveMag = Math.hypot(medDx, medDy);
+        if (moveMag > 0.4) {
+          const normDx = (appState.mirrorVideo ? -medDx : medDx) / cvW;
+          const normDy = medDy / cvH;
+
+          // Projeta movimento da superficie ancorada para o mundo 3D
+          const worldStepX = normDx * 14.5;
+          const worldStepZ = normDy * 11.0;
+
+          appState.targetBoardPos.x = Math.max(-4.5, Math.min(4.5, appState.targetBoardPos.x + worldStepX));
+          appState.targetBoardPos.z = Math.max(-3.5, Math.min(3.5, appState.targetBoardPos.z + worldStepZ));
+        }
+
+        // Calcula mudanca de escala aparente entre pares de pontos da superficie
+        if (tracked.length >= 3) {
+          let sumOld = 0, sumNew = 0;
+          for (let i = 0; i < tracked.length; i++) {
+            for (let j = i + 1; j < tracked.length; j++) {
+              const dOld = Math.hypot(tracked[i].oldX - tracked[j].oldX, tracked[i].oldY - tracked[j].oldY);
+              const dNew = Math.hypot(tracked[i].newX - tracked[j].newX, tracked[i].newY - tracked[j].newY);
+              if (dOld > 12) {
+                sumOld += dOld;
+                sumNew += dNew;
+              }
+            }
+          }
+          if (sumOld > 0) {
+            const ratio = sumNew / sumOld;
+            if (Math.abs(ratio - 1) > 0.012 && Math.abs(ratio - 1) < 0.25) {
+              appState.targetBoardScale = Math.max(0.55, Math.min(1.85, appState.targetBoardScale * ratio));
+            }
+          }
+        }
+
+        // Atualiza posicoes e templates dos patches rastreados
+        surfacePatches.length = 0;
+        for (const t of tracked) {
+          const refreshed = extractPatch(gray, t.newX, t.newY, half);
+          surfacePatches.push({ x: t.newX, y: t.newY, buf: refreshed.buf });
+        }
+
+        // Repoe patches perdidos para manter ancora continua durante movimento
+        if (surfacePatches.length < 5) {
+          for (let y = 42; y <= 104 && surfacePatches.length < 6; y += 14) {
+            for (let x = 28; x <= 132 && surfacePatches.length < 6; x += 18) {
+              if (surfacePatches.some(p => Math.hypot(p.x - x, p.y - y) < 18)) continue;
+              const cand = extractPatch(gray, x, y, half);
+              if (cand.variance >= 32 && cand.variance <= 1600) {
+                surfacePatches.push({ x, y, buf: cand.buf });
+              }
+            }
+          }
+        }
+      } else {
+        seedSurfacePatches(gray);
+      }
+
+      // Compensacao suave por giroscopio se disponivel em dispositivo movel
+      if (Math.abs(gyroRollBias) > 0.05 || Math.abs(gyroPitchBias) > 0.05) {
+        appState.targetBoardYaw = Math.max(-0.45, Math.min(0.45, appState.targetBoardYaw - gyroRollBias * 0.008));
+        gyroRollBias = 0;
+        gyroPitchBias = 0;
+      }
+    }
+
+    function detectPhysicalChessboard(gray) {
       const corners = [];
       const r = 3;
       const threshold = 32;
 
-      for (let y = r + 2; y < H - r - 2; y += 2) {
-        for (let x = r + 2; x < W - r - 2; x += 2) {
-          const tl = gray[(y - r) * W + (x - r)];
-          const tr = gray[(y - r) * W + (x + r)];
-          const bl = gray[(y + r) * W + (x - r)];
-          const br = gray[(y + r) * W + (x + r)];
+      for (let y = r + 2; y < cvH - r - 2; y += 2) {
+        for (let x = r + 2; x < cvW - r - 2; x += 2) {
+          const tl = gray[(y - r) * cvW + (x - r)];
+          const tr = gray[(y - r) * cvW + (x + r)];
+          const bl = gray[(y + r) * cvW + (x - r)];
+          const br = gray[(y + r) * cvW + (x + r)];
 
           const diagDiff = ((tl + br) * 0.5) - ((tr + bl) * 0.5);
           const absD = Math.abs(diagDiff);
@@ -866,7 +848,7 @@
       if (filtered.length >= 16) {
         let posCount = 0, negCount = 0;
         let sumX = 0, sumY = 0;
-        let minX = W, maxX = 0, minY = H, maxY = 0;
+        let minX = cvW, maxX = 0, minY = cvH, maxY = 0;
 
         for (const c of filtered) {
           if (c.sign > 0) posCount++;
@@ -882,38 +864,62 @@
         const spanW = maxX - minX;
         const spanH = maxY - minY;
         if (posCount >= 5 && negCount >= 5 && spanW >= 32 && spanH >= 26 && spanW <= 145 && spanH <= 110) {
-          consecutiveBoardHits++;
-          if (consecutiveBoardHits >= 3) {
-            const normCx = (sumX / filtered.length) / W;
-            const normCy = (sumY / filtered.length) / H;
+          realBoardHits++;
+          realBoardMisses = 0;
+          if (realBoardHits >= 3) {
+            const normCx = (sumX / filtered.length) / cvW;
+            const normCy = (sumY / filtered.length) / cvH;
             const mappedCx = appState.mirrorVideo ? (1 - normCx) : normCx;
-            const estScale = Math.min(1.55, Math.max(0.65, (spanW / W) * 1.45));
+            const estScale = Math.min(1.65, Math.max(0.60, (spanW / cvW) * 1.48));
 
-            if (!appState.realBoardFound) {
-              appState.realBoardFound = true;
-              setBoardMode('real');
+            if (appState.boardMode !== 'real') {
+              applyBoardVisualMode('real');
               SoundFX.boardDetected();
             }
 
-            if (appState.boardMode === 'real' && !appState.resizeDrag && !appState.dualPinch) {
-              appState.targetBoardPos.set((mappedCx - 0.5) * 4.2, 0, (normCy - 0.5) * 2.6);
-              appState.targetBoardScale = estScale;
-            }
+            appState.targetBoardPos.set((mappedCx - 0.5) * 4.5, 0, (normCy - 0.5) * 2.8);
+            appState.targetBoardScale = estScale;
           }
-          return;
+          return true;
         }
       }
 
-      consecutiveBoardHits = Math.max(0, consecutiveBoardHits - 1);
+      realBoardHits = Math.max(0, realBoardHits - 1);
+      realBoardMisses++;
+      if (realBoardMisses > 12 && appState.boardMode === 'real') {
+        applyBoardVisualMode('virtual');
+      }
+      return false;
+    }
+
+    function runArVisionStep() {
+      if (!appState.videoReady || videoEl.videoWidth === 0) return;
+
+      cvCtx.drawImage(videoEl, 0, 0, cvW, cvH);
+      const data = cvCtx.getImageData(0, 0, cvW, cvH).data;
+      const gray = new Uint8Array(cvW * cvH);
+      for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+        gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+      }
+
+      const foundRealBoard = detectPhysicalChessboard(gray);
+      if (!foundRealBoard) {
+        // Sem tabuleiro fisico -> ancora e rastreia superficie plana (mesa/chao) estilo Minecraft Earth
+        trackSurfacePlane(gray);
+      }
     }
 
     // =========================================================================
-    // 8. MEDIAPIPE HANDS + SILHUETA LEVE NA FRENTE DO TABULEIRO + PINCELADA
+    // 8. MEDIAPIPE HANDS + PINCELADA POR CONTATO FISICO + MAO TRANSPARENTE
     // =========================================================================
-    const handTrackers = [
-      { isPinching: false, sx: 0, sy: 0, initialized: false, lmScreen: null, pinchRatio: 1 },
-      { isPinching: false, sx: 0, sy: 0, initialized: false, lmScreen: null, pinchRatio: 1 }
-    ];
+    const handTracker = {
+      isPinching: false,
+      confirmFrames: 0,
+      sx: 0,
+      sy: 0,
+      initialized: false,
+      lmScreen: null
+    };
     let latestLandmarks = [];
     let isProcessingHand = false;
     let mpHands = null;
@@ -936,112 +942,63 @@
     function onHandResults(results) {
       isProcessingHand = false;
       latestLandmarks = results.multiHandLandmarks || [];
-      modeTogglePill.classList.remove('pinch-hover');
 
       if (latestLandmarks.length === 0) {
-        handTrackers.forEach((ht, idx) => {
-          if (ht.isPinching) {
-            ht.isPinching = false;
-            if (idx === 0) endPinchAction(ht.sx, ht.sy);
-          }
-          ht.initialized = false;
-          ht.lmScreen = null;
-        });
-        appState.dualPinch = null;
+        if (handTracker.isPinching) {
+          handTracker.isPinching = false;
+          endPinchAction(handTracker.sx, handTracker.sy);
+        }
+        handTracker.confirmFrames = 0;
+        handTracker.initialized = false;
+        handTracker.lmScreen = null;
+        appState.hoveredPiece = null;
         return;
       }
 
-      const activePinchHands = [];
+      const lm = latestLandmarks[0];
+      const pts = lm.map(p => videoToScreen(p.x, p.y));
+      handTracker.lmScreen = pts;
 
-      for (let i = 0; i < Math.min(2, latestLandmarks.length); i++) {
-        const lm = latestLandmarks[i];
-        const pts = lm.map(p => videoToScreen(p.x, p.y));
-        const ht = handTrackers[i];
-        ht.lmScreen = pts;
+      // Medicao isotropica para exigir contato real entre ponta do polegar e indicador
+      const aspectV = (videoEl.videoHeight || 720) / Math.max(videoEl.videoWidth || 1280, 1);
+      const tipDist = Math.hypot(lm[4].x - lm[8].x, (lm[4].y - lm[8].y) * aspectV);
+      const palmLen = Math.hypot(lm[0].x - lm[9].x, (lm[0].y - lm[9].y) * aspectV);
+      const indexDipPipDist = Math.hypot(lm[8].x - lm[6].x, (lm[8].y - lm[6].y) * aspectV);
+      const ratio = tipDist / Math.max(palmLen, 0.08);
 
-        const palmPx = Math.hypot(pts[0].x - pts[9].x, pts[0].y - pts[9].y);
-        const pinchPx = Math.hypot(pts[4].x - pts[8].x, pts[4].y - pts[8].y);
-        const ratio = pinchPx / Math.max(palmPx, 28);
-        ht.pinchRatio = ratio;
-
-        const rawX = (pts[4].x + pts[8].x) * 0.5;
-        const rawY = (pts[4].y + pts[8].y) * 0.5;
-        if (!ht.initialized) {
-          ht.sx = rawX;
-          ht.sy = rawY;
-          ht.initialized = true;
-        } else {
-          ht.sx += (rawX - ht.sx) * 0.42;
-          ht.sy += (rawY - ht.sy) * 0.42;
-        }
-
-        const wasPinching = ht.isPinching;
-        if (!wasPinching && (ratio < 0.44 || pinchPx < 28)) {
-          ht.isPinching = true;
-          if (i === 0) startPinchAction(ht.sx, ht.sy, true);
-        } else if (wasPinching && ratio > 0.58 && pinchPx > 36) {
-          ht.isPinching = false;
-          if (i === 0) endPinchAction(ht.sx, ht.sy);
-        }
-
-        if (ht.isPinching) {
-          activePinchHands.push(ht);
-        }
-
-        if (i === 0) {
-          const el = document.elementFromPoint(ht.sx, ht.sy);
-          if (el && el.closest && el.closest('#modeTogglePill')) {
-            modeTogglePill.classList.add('pinch-hover');
-          }
-        }
-      }
-
-      if (latestLandmarks.length < 2) {
-        handTrackers[1].isPinching = false;
-        handTrackers[1].lmScreen = null;
-        handTrackers[1].initialized = false;
-      }
-
-      // Pincelada dupla com duas maos: redimensiona e posiciona o tabuleiro
-      if (activePinchHands.length === 2) {
-        const h0 = activePinchHands[0];
-        const h1 = activePinchHands[1];
-        const dist = Math.hypot(h0.sx - h1.sx, h0.sy - h1.sy);
-        const midX = (h0.sx + h1.sx) * 0.5;
-        const midY = (h0.sy + h1.sy) * 0.5;
-
-        if (!appState.dualPinch) {
-          if (appState.heldPiece) {
-            appState.heldPiece.targetPos.copy(appState.heldPiece.originPos);
-            appState.heldPiece = null;
-          }
-          appState.resizeDrag = null;
-          appState.dualPinch = {
-            startDist: Math.max(dist, 40),
-            startScale: appState.targetBoardScale,
-            startMidGround: raycastBoardGround(midX, midY),
-            startBoardPos: appState.targetBoardPos.clone()
-          };
-          SoundFX.pinchGrab();
-        } else {
-          const ratio = dist / appState.dualPinch.startDist;
-          appState.targetBoardScale = Math.min(2.30, Math.max(0.45, appState.dualPinch.startScale * ratio));
-          const curMidGround = raycastBoardGround(midX, midY);
-          if (curMidGround && appState.dualPinch.startMidGround) {
-            appState.targetBoardPos.set(
-              appState.dualPinch.startBoardPos.x + (curMidGround.x - appState.dualPinch.startMidGround.x),
-              0,
-              appState.dualPinch.startBoardPos.z + (curMidGround.z - appState.dualPinch.startMidGround.z)
-            );
-          }
-          SoundFX.boardResize(appState.targetBoardScale);
-        }
+      const rawX = (pts[4].x + pts[8].x) * 0.5;
+      const rawY = (pts[4].y + pts[8].y) * 0.5;
+      if (!handTracker.initialized) {
+        handTracker.sx = rawX;
+        handTracker.sy = rawY;
+        handTracker.initialized = true;
       } else {
-        appState.dualPinch = null;
-        if (handTrackers[0].isPinching) {
-          movePinchAction(handTrackers[0].sx, handTrackers[0].sy);
-        }
+        handTracker.sx += (rawX - handTracker.sx) * 0.42;
+        handTracker.sy += (rawY - handTracker.sy) * 0.42;
       }
+
+      // So ativa quando ponta do polegar (4) encosta fisicamente na ponta do indicador (8)
+      const touchingNow = ratio < 0.17 && tipDist < 0.035 && tipDist < indexDipPipDist * 0.92;
+      const releasedNow = ratio > 0.24 || tipDist > 0.048;
+
+      if (!handTracker.isPinching) {
+        if (touchingNow) {
+          handTracker.confirmFrames++;
+          if (handTracker.confirmFrames >= 2) {
+            handTracker.isPinching = true;
+            handTracker.confirmFrames = 0;
+            startPinchAction(handTracker.sx, handTracker.sy);
+          }
+        } else {
+          handTracker.confirmFrames = 0;
+        }
+      } else if (releasedNow) {
+        handTracker.isPinching = false;
+        handTracker.confirmFrames = 0;
+        endPinchAction(handTracker.sx, handTracker.sy);
+      }
+
+      movePinchAction(handTracker.sx, handTracker.sy);
     }
 
     const FINGER_CHAINS = [
@@ -1052,63 +1009,49 @@
       [0, 17, 18, 19, 20]
     ];
 
-    function renderForegroundHand() {
+    function renderTransparentHand() {
       const sw = handCanvas.width;
       const sh = handCanvas.height;
       handCtx.clearRect(0, 0, sw, sh);
 
-      if (!latestLandmarks || latestLandmarks.length === 0) return;
+      const pts = handTracker.lmScreen;
+      if (!pts) return;
 
-      for (let i = 0; i < Math.min(2, latestLandmarks.length); i++) {
-        const ht = handTrackers[i];
-        const pts = ht.lmScreen;
-        if (!pts) continue;
+      const isPinch = handTracker.isPinching;
+      handCtx.save();
 
-        const isPinch = ht.isPinching;
-        handCtx.save();
+      // Contorno ultra fino e altamente transparente para nunca esconder as pecas atras
+      handCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      handCtx.lineWidth = 1.2;
+      handCtx.lineCap = 'round';
+      handCtx.lineJoin = 'round';
 
-        // Contorno fino e translucido da mao na frente do tabuleiro sem obstruir as pecas
-        handCtx.strokeStyle = isPinch ? 'rgba(246, 179, 208, 0.62)' : 'rgba(255, 255, 255, 0.45)';
-        handCtx.lineWidth = 2.0;
-        handCtx.lineCap = 'round';
-        handCtx.lineJoin = 'round';
-
-        for (const chain of FINGER_CHAINS) {
-          handCtx.beginPath();
-          chain.forEach((idx, k) => {
-            if (k === 0) handCtx.moveTo(pts[idx].x, pts[idx].y);
-            else handCtx.lineTo(pts[idx].x, pts[idx].y);
-          });
-          handCtx.stroke();
-        }
-
-        // Pontos de pincelada no polegar (4) e indicador (8)
-        for (const tipIdx of [4, 8]) {
-          handCtx.beginPath();
-          handCtx.arc(pts[tipIdx].x, pts[tipIdx].y, isPinch ? 5.5 : 4.5, 0, Math.PI * 2);
-          handCtx.fillStyle = isPinch ? '#C83E7B' : '#82C8F3';
-          handCtx.fill();
-        }
-
-        // Linha e ponto central da pincelada
+      for (const chain of FINGER_CHAINS) {
         handCtx.beginPath();
-        handCtx.moveTo(pts[4].x, pts[4].y);
-        handCtx.lineTo(pts[8].x, pts[8].y);
-        handCtx.strokeStyle = isPinch ? 'rgba(200, 62, 123, 0.85)' : 'rgba(130, 200, 243, 0.72)';
-        handCtx.lineWidth = isPinch ? 3.2 : 1.8;
+        chain.forEach((idx, k) => {
+          if (k === 0) handCtx.moveTo(pts[idx].x, pts[idx].y);
+          else handCtx.lineTo(pts[idx].x, pts[idx].y);
+        });
         handCtx.stroke();
-
-        const radius = isPinch ? 11 : Math.min(22, Math.max(10, ht.pinchRatio * 20));
-        handCtx.beginPath();
-        handCtx.arc(ht.sx, ht.sy, radius, 0, Math.PI * 2);
-        handCtx.fillStyle = isPinch ? 'rgba(246, 179, 208, 0.38)' : 'rgba(255, 255, 255, 0.16)';
-        handCtx.fill();
-        handCtx.lineWidth = isPinch ? 2.6 : 1.5;
-        handCtx.strokeStyle = isPinch ? '#C83E7B' : 'rgba(130, 200, 243, 0.85)';
-        handCtx.stroke();
-
-        handCtx.restore();
       }
+
+      // Apenas dois anéis finos vazados nas pontas do polegar (4) e indicador (8)
+      for (const tipIdx of [4, 8]) {
+        handCtx.beginPath();
+        handCtx.arc(pts[tipIdx].x, pts[tipIdx].y, 4, 0, Math.PI * 2);
+        handCtx.lineWidth = isPinch ? 1.8 : 1.4;
+        handCtx.strokeStyle = isPinch ? 'rgba(200, 62, 123, 0.78)' : 'rgba(130, 200, 243, 0.55)';
+        handCtx.stroke();
+      }
+
+      if (isPinch) {
+        handCtx.beginPath();
+        handCtx.arc(handTracker.sx, handTracker.sy, 2.5, 0, Math.PI * 2);
+        handCtx.fillStyle = 'rgba(200, 62, 123, 0.82)';
+        handCtx.fill();
+      }
+
+      handCtx.restore();
     }
 
     async function initMediaPipeHands() {
@@ -1117,10 +1060,10 @@
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
       mpHands.setOptions({
-        maxNumHands: 2,
+        maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.58,
-        minTrackingConfidence: 0.58
+        minDetectionConfidence: 0.62,
+        minTrackingConfidence: 0.62
       });
       mpHands.onResults(onHandResults);
     }
@@ -1128,30 +1071,25 @@
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: { ideal: 'environment' }
+          },
           audio: false
         });
         videoEl.srcObject = stream;
         await videoEl.play();
+        const track = stream.getVideoTracks()[0];
+        const settings = track && track.getSettings ? track.getSettings() : {};
+        appState.mirrorVideo = settings.facingMode !== 'environment';
+        videoEl.classList.toggle('mirrored', appState.mirrorVideo);
         appState.videoReady = true;
         videoEl.classList.add('active');
       } catch (err) {
         appState.videoReady = false;
       }
     }
-
-    modeTogglePill.addEventListener('click', () => {
-      SoundFX.unlock();
-      SoundFX.pinchGrab();
-      if (appState.boardMode === 'virtual') {
-        appState.autoSearchReal = true;
-        setBoardMode('real');
-      } else {
-        appState.autoSearchReal = false;
-        appState.targetBoardPos.set(0, 0, 0);
-        setBoardMode('virtual');
-      }
-    });
 
     window.addEventListener('resize', updateCameraViewport);
 
@@ -1163,34 +1101,52 @@
     function animate(now) {
       requestAnimationFrame(animate);
 
-      appState.boardScale += (appState.targetBoardScale - appState.boardScale) * 0.22;
+      appState.boardScale += (appState.targetBoardScale - appState.boardScale) * 0.16;
       boardGroup.scale.setScalar(appState.boardScale);
       appState.boardPos.lerp(appState.targetBoardPos, 0.16);
       boardGroup.position.copy(appState.boardPos);
+      appState.boardYaw += (appState.targetBoardYaw - appState.boardYaw) * 0.12;
+      boardGroup.rotation.y = appState.boardYaw;
+
+      const activeFocusPiece = appState.heldPiece || appState.hoveredPiece;
+      if (activeFocusPiece) {
+        if (appState.heldPiece) {
+          const sx = Math.abs(activeFocusPiece.targetPos.x) <= 4.05 && Math.abs(activeFocusPiece.targetPos.z) <= 4.05
+            ? Math.round(activeFocusPiece.targetPos.x + 3.5) - 3.5
+            : activeFocusPiece.targetPos.x;
+          const sz = Math.abs(activeFocusPiece.targetPos.x) <= 4.05 && Math.abs(activeFocusPiece.targetPos.z) <= 4.05
+            ? Math.round(activeFocusPiece.targetPos.z + 3.5) - 3.5
+            : activeFocusPiece.targetPos.z;
+          focusRingMesh.position.set(sx, 0.045, sz);
+          focusRingMat.color.setHex(0xF6B3D0);
+          focusRingMat.opacity = 0.72;
+        } else {
+          focusRingMesh.position.set(activeFocusPiece.targetPos.x, 0.045, activeFocusPiece.targetPos.z);
+          focusRingMat.color.setHex(0x82C8F3);
+          focusRingMat.opacity = 0.56;
+        }
+      } else {
+        focusRingMat.opacity = 0;
+      }
 
       for (const p of pieces) {
         const lerpSpeed = p === appState.heldPiece ? 0.44 : 0.24;
         p.mesh.position.lerp(p.targetPos, lerpSpeed);
-        const s = p.mesh.scale.x + (p.targetScale - p.mesh.scale.x) * 0.22;
-        p.mesh.scale.setScalar(s);
 
         if (p === appState.heldPiece) {
-          p.mat.emissive.setHex(0xC83E7B);
-          p.mat.emissiveIntensity = 0.25;
+          p.mat.emissive.setHex(0xF6B3D0);
+          p.mat.emissiveIntensity = 0.44;
+        } else if (p === appState.hoveredPiece) {
+          p.mat.emissive.setHex(0x82C8F3);
+          p.mat.emissiveIntensity = 0.36;
         } else {
           p.mat.emissive.setHex(0x000000);
           p.mat.emissiveIntensity = 0;
         }
       }
 
-      cornerDots.forEach((d) => {
-        const active = !!appState.resizeDrag || !!appState.dualPinch;
-        d.material.color.setHex(active ? 0xC83E7B : 0x82C8F3);
-        d.material.opacity = active ? 0.85 : 0.42;
-      });
-
       renderer.render(scene, camera);
-      renderForegroundHand();
+      renderTransparentHand();
 
       if (appState.videoReady && mpHands && !isProcessingHand && videoEl.readyState >= 2 && (now - lastHandInferTime > 30)) {
         isProcessingHand = true;
@@ -1200,15 +1156,14 @@
         });
       }
 
-      if (now - lastCvScan > 250) {
-        lastCvScan = now;
-        scanForPhysicalChessboard();
+      if (now - lastCvTime > 65) {
+        lastCvTime = now;
+        runArVisionStep();
       }
     }
 
     updateCameraViewport();
     setupBoard();
-    setBoardMode('virtual');
     initMediaPipeHands();
     startCamera();
     requestAnimationFrame(animate);
