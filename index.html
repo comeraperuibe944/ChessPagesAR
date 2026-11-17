@@ -787,7 +787,7 @@
       const v14 = gray[idx + o[base + 14]];
       const c2 = (v2 + v10) - (v6 + v14);
 
-      if ((c0 < 0 ? -c0 : c0) + (c2 < 0 ? -c2 : c2) < 24) return -1;
+      if ((c0 < 0 ? -c0 : c0) + (c2 < 0 ? -c2 : c2) < 16) return -1;
 
       const v1 = gray[idx + o[base + 1]];
       const v3 = gray[idx + o[base + 3]];
@@ -805,7 +805,7 @@
         (c1 < 0 ? -c1 : c1) +
         (c2 < 0 ? -c2 : c2) +
         (c3 < 0 ? -c3 : c3);
-      if (sr < 52) return -1;
+      if (sr < 36) return -1;
 
       const d0 = v0 - v8, d1 = v1 - v9, d2 = v2 - v10, d3 = v3 - v11;
       const d4 = v4 - v12, d5 = v5 - v13, d6 = v6 - v14, d7 = v7 - v15;
@@ -825,42 +825,55 @@
       const mr = mrDiff < 0 ? -mrDiff : mrDiff;
 
       const score = (sr - 1.15 * dr - 6.0 * mr) * RING_WEIGHTS[ringIdx];
-      if (score <= 24) return -1;
+      if (score <= 22) return -1;
 
       _chessC0 = c0;
       _chessC2 = c2;
       return score;
     }
 
-    function refineSaddleSubPixel(gray, w, h, ix, iy) {
-      if (ix < 4 || ix >= w - 4 || iy < 4 || iy >= h - 4) {
-        return { x: ix, y: iy };
-      }
-      let a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0;
-      for (let dy = -2; dy <= 2; dy++) {
-        const ro = (iy + dy) * w;
-        for (let dx = -2; dx <= 2; dx++) {
-          const idx = ro + ix + dx;
-          const gx = 0.5 * (gray[idx + 1] - gray[idx - 1]);
-          const gy = 0.5 * (gray[idx + w] - gray[idx - w]);
-          const dot = gx * dx + gy * dy;
-          a00 += gx * gx;
-          a01 += gx * gy;
-          a11 += gy * gy;
-          b0 += gx * dot;
-          b1 += gy * dot;
+    function refineSaddleSubPixel(gray, w, h, initX, initY) {
+      let curX = initX;
+      let curY = initY;
+      for (let iter = 0; iter < 2; iter++) {
+        const ix = Math.round(curX);
+        const iy = Math.round(curY);
+        if (ix < 4 || ix >= w - 4 || iy < 4 || iy >= h - 4) break;
+        let a00 = 0, a01 = 0, a11 = 0, b0 = 0, b1 = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          const wy = 3 - (dy < 0 ? -dy : dy);
+          const ro = (iy + dy) * w;
+          for (let dx = -2; dx <= 2; dx++) {
+            const wt = wy * (3 - (dx < 0 ? -dx : dx));
+            const idx = ro + ix + dx;
+            const gx = 0.5 * (gray[idx + 1] - gray[idx - 1]);
+            const gy = 0.5 * (gray[idx + w] - gray[idx - w]);
+            const dot = gx * dx + gy * dy;
+            a00 += wt * gx * gx;
+            a01 += wt * gx * gy;
+            a11 += wt * gy * gy;
+            b0 += wt * gx * dot;
+            b1 += wt * gy * dot;
+          }
         }
-      }
-      const det = a00 * a11 - a01 * a01;
-      const trace = a00 + a11;
-      if (det > 80 && (trace * trace) / det < 28) {
-        const sx = (a11 * b0 - a01 * b1) / det;
-        const sy = (a00 * b1 - a01 * b0) / det;
-        if (Math.hypot(sx, sy) < 1.15) {
-          return { x: ix + sx, y: iy + sy };
+        const det = a00 * a11 - a01 * a01;
+        const trace = a00 + a11;
+        if (det > 80 && (trace * trace) / det < 28) {
+          const sx = (a11 * b0 - a01 * b1) / det;
+          const sy = (a00 * b1 - a01 * b0) / det;
+          if (Math.hypot(sx, sy) < 1.35) {
+            const nx = ix + sx;
+            const ny = iy + sy;
+            if (Math.hypot(nx - initX, ny - initY) < 1.6) {
+              curX = nx;
+              curY = ny;
+              continue;
+            }
+          }
         }
+        break;
       }
-      return { x: ix, y: iy };
+      return { x: curX, y: curY };
     }
 
     function detectChessSaddlePeaks(gray, w, h, roi = null) {
@@ -885,14 +898,14 @@
           const c0 = (v0 + v8) - (v4 + v12);
           const v2 = gray[idx + o2], v6 = gray[idx + o6], v10 = gray[idx + o10], v14 = gray[idx + o14];
           const c2 = (v2 + v10) - (v6 + v14);
-          if ((c0 < 0 ? -c0 : c0) + (c2 < 0 ? -c2 : c2) < 24) continue;
+          if ((c0 < 0 ? -c0 : c0) + (c2 < 0 ? -c2 : c2) < 16) continue;
 
           const v1 = gray[idx + o1], v3 = gray[idx + o3], v5 = gray[idx + o5], v7 = gray[idx + o7];
           const v9 = gray[idx + o9], v11 = gray[idx + o11], v13 = gray[idx + o13], v15 = gray[idx + o15];
           const c1 = (v1 + v9) - (v5 + v13);
           const c3 = (v3 + v11) - (v7 + v15);
           const sr = (c0 < 0 ? -c0 : c0) + (c1 < 0 ? -c1 : c1) + (c2 < 0 ? -c2 : c2) + (c3 < 0 ? -c3 : c3);
-          if (sr < 52) continue;
+          if (sr < 36) continue;
 
           const d0 = v0 - v8, d1 = v1 - v9, d2 = v2 - v10, d3 = v3 - v11;
           const d4 = v4 - v12, d5 = v5 - v13, d6 = v6 - v14, d7 = v7 - v15;
@@ -903,7 +916,7 @@
           const centerMean = ((gray[idx] << 2) + gray[idx - 1] + gray[idx + 1] + gray[idx - w] + gray[idx + w]) * 0.125;
           const mrDiff = ringMean - centerMean;
           const sc = sr - 1.15 * dr - 6.0 * (mrDiff < 0 ? -mrDiff : mrDiff);
-          if (sc > 26) {
+          if (sc > 24) {
             candidates.push({ x, y, score: sc, rIdx: 0 });
           }
         }
@@ -916,7 +929,7 @@
         let suppressed = false;
         for (let j = 0; j < roughPeaks.length; j++) {
           const p = roughPeaks[j];
-          if (Math.hypot(p.x - c.x, p.y - c.y) < 5.5) {
+          if (Math.hypot(p.x - c.x, p.y - c.y) < 5.0) {
             suppressed = true;
             break;
           }
@@ -963,7 +976,7 @@
             }
           }
         }
-        if (bestScore <= 24) continue;
+        if (bestScore <= 22) continue;
 
         const mag2 = Math.hypot(bestC0, bestC2);
         if (mag2 < 1e-3) continue;
@@ -1138,7 +1151,7 @@
     // Descobre os 2 eixos perspectivos da rede e cresce o grafo topologico (iu, iv)
     function growChessboardLattice(peaks) {
       const n = peaks.length;
-      if (n < 16) return null;
+      if (n < 9) return null;
 
       const edgesByPeak = Array.from({ length: n }, () => []);
       const numBins = 60;
@@ -1161,7 +1174,7 @@
         if (cands.length === 0) continue;
         cands.sort((a, b) => a.d - b.d);
         const minD = cands[0].d;
-        const limitD = minD * 2.15;
+        const limitD = minD * 2.25;
         for (let k = 0; k < cands.length && k < 6; k++) {
           const e = cands[k];
           if (e.d > limitD) break;
@@ -1185,8 +1198,7 @@
       for (let b = 1; b < numBins; b++) {
         if (smoothHist[b] > smoothHist[bin1]) bin1 = b;
       }
-      if (smoothHist[bin1] <= 0) return null;
-      const ang1 = ((bin1 + 0.5) / numBins) * Math.PI;
+      const ang1 = smoothHist[bin1] > 0 ? (((bin1 + 0.5) / numBins) * Math.PI) : 0;
 
       let bin2 = -1;
       let maxH2 = -1;
@@ -1200,8 +1212,8 @@
           bin2 = b;
         }
       }
-      if (bin2 < 0 || maxH2 <= 0) return null;
-      const ang2 = ((bin2 + 0.5) / numBins) * Math.PI;
+      const hasHistAxes = smoothHist[bin1] > 0 && bin2 >= 0 && maxH2 > 0;
+      const ang2 = hasHistAxes ? (((bin2 + 0.5) / numBins) * Math.PI) : (ang1 + Math.PI * 0.5);
 
       const d1x = Math.cos(ang1), d1y = Math.sin(ang1);
       const d2x = Math.cos(ang2), d2y = Math.sin(ang2);
@@ -1218,22 +1230,41 @@
       let bestLattice = null;
       const triedUsed = new Uint8Array(n);
 
-      for (let sIdx = 0; sIdx < seedOrder.length && sIdx < 8; sIdx++) {
+      for (let sIdx = 0; sIdx < seedOrder.length && sIdx < 10; sIdx++) {
         const rootIdx = seedOrder[sIdx].idx;
         if (triedUsed[rootIdx]) continue;
 
         let initU = null, initV = null;
-        for (const e of edgesByPeak[rootIdx]) {
-          const ux = e.dx / e.d, uy = e.dy / e.d;
-          const dot1 = ux * d1x + uy * d1y;
-          const dot2 = ux * d2x + uy * d2y;
-          if (Math.abs(dot1) > 0.72) {
-            if (!initU || e.d < initU.d) {
-              initU = dot1 >= 0 ? { x: e.dx, y: e.dy, d: e.d } : { x: -e.dx, y: -e.dy, d: e.d };
+        if (hasHistAxes) {
+          for (const e of edgesByPeak[rootIdx]) {
+            const ux = e.dx / e.d, uy = e.dy / e.d;
+            const dot1 = ux * d1x + uy * d1y;
+            const dot2 = ux * d2x + uy * d2y;
+            if (Math.abs(dot1) > 0.72) {
+              if (!initU || e.d < initU.d) {
+                initU = dot1 >= 0 ? { x: e.dx, y: e.dy, d: e.d } : { x: -e.dx, y: -e.dy, d: e.d };
+              }
+            } else if (Math.abs(dot2) > 0.72) {
+              if (!initV || e.d < initV.d) {
+                initV = dot2 >= 0 ? { x: e.dx, y: e.dy, d: e.d } : { x: -e.dx, y: -e.dy, d: e.d };
+              }
             }
-          } else if (Math.abs(dot2) > 0.72) {
-            if (!initV || e.d < initV.d) {
-              initV = dot2 >= 0 ? { x: e.dx, y: e.dy, d: e.d } : { x: -e.dx, y: -e.dy, d: e.d };
+          }
+        }
+        // Fallback direto para as 2 arestas mais curtas nao-colineares conectadas a rootIdx
+        if (!initU || !initV) {
+          const edges = edgesByPeak[rootIdx];
+          if (edges.length >= 2) {
+            const e0 = edges[0];
+            initU = { x: e0.dx, y: e0.dy, d: e0.d };
+            initV = null;
+            for (let k = 1; k < edges.length; k++) {
+              const ek = edges[k];
+              const dot = (e0.dx * ek.dx + e0.dy * ek.dy) / (e0.d * ek.d);
+              if (Math.abs(dot) < 0.78) {
+                initV = { x: ek.dx, y: ek.dy, d: ek.d };
+                break;
+              }
             }
           }
         }
@@ -1271,7 +1302,6 @@
           const cur = queue[qHead++];
           const curP = peaks[cur.peakIdx];
 
-          // Atualiza estimativa local de passo com vizinhos ja conectados
           let locUx = cur.ux, locUy = cur.uy;
           const nR = coordMap.get(`${cur.iu + 1},${cur.iv}`);
           const nL = coordMap.get(`${cur.iu - 1},${cur.iv}`);
@@ -1296,9 +1326,6 @@
             locVx = cur.x - nU.x; locVy = cur.y - nU.y;
           }
 
-          const stepMin = Math.min(Math.hypot(locUx, locUy), Math.hypot(locVx, locVy));
-          const searchR = Math.max(4.5, stepMin * 0.42);
-
           for (let dIdx = 0; dIdx < 4; dIdx++) {
             const du = dirs[dIdx][0];
             const dv = dirs[dIdx][1];
@@ -1314,6 +1341,7 @@
             const stepLen = Math.hypot(stepVecX, stepVecY);
             if (stepLen < 5) continue;
 
+            const searchR = Math.max(4.5, stepLen * 0.45);
             let bestJ = -1;
             let bestDist = searchR;
             for (let j = 0; j < n; j++) {
@@ -1325,7 +1353,7 @@
                 const vx = pj.x - cur.x;
                 const vy = pj.y - cur.y;
                 const vLen = Math.hypot(vx, vy);
-                if (vLen > 4 && (vx * stepVecX + vy * stepVecY) / (vLen * stepLen) > 0.72) {
+                if (vLen > 4 && (vx * stepVecX + vy * stepVecY) / (vLen * stepLen) > 0.70) {
                   bestDist = dist;
                   bestJ = j;
                 }
@@ -1354,7 +1382,7 @@
           }
         }
 
-        if (nodes.length >= 16) {
+        if (nodes.length >= 9) {
           let minIu = Infinity, maxIu = -Infinity, minIv = Infinity, maxIv = -Infinity;
           for (const nd of nodes) {
             if (nd.iu < minIu) minIu = nd.iu;
@@ -1362,13 +1390,14 @@
             if (nd.iv < minIv) minIv = nd.iv;
             if (nd.iv > maxIv) maxIv = nd.iv;
           }
-          if ((maxIu - minIu) >= 3 && (maxIv - minIv) >= 3) {
+          if ((maxIu - minIu) >= 2 && (maxIv - minIv) >= 2) {
             if (!bestLattice || nodes.length > bestLattice.nodes.length) {
               bestLattice = { nodes, minIu, maxIu, minIv, maxIv, coordMap };
               if (nodes.length >= 42) break;
             }
           }
         }
+        if (bestLattice && bestLattice.nodes.length >= 25 && sIdx >= 2) break;
       }
 
       return bestLattice;
@@ -1380,97 +1409,263 @@
       return sampleBilinearGray(buf, p.x, p.y, w, h);
     }
 
+    // Valida canto interno de 4 quadrantes (E_min > 0 rejeita juncoes T na borda!) e sintetiza canto se necessario
+    function verifyAndRefineInternalCorner(smoothGray, H, iu, iv, refPhaseSign, refContrast, peaks, usedPeak, rootN2x, rootN2y, rootPar, w, h) {
+      const pTL = applyH(H, iu - 0.36, iv - 0.36);
+      const pTR = applyH(H, iu + 0.36, iv - 0.36);
+      const pBR = applyH(H, iu + 0.36, iv + 0.36);
+      const pBL = applyH(H, iu - 0.36, iv + 0.36);
+      if (!pTL || !pTR || !pBR || !pBL) return null;
+
+      const qTL = sampleBilinearGray(smoothGray, pTL.x, pTL.y, w, h);
+      const qTR = sampleBilinearGray(smoothGray, pTR.x, pTR.y, w, h);
+      const qBR = sampleBilinearGray(smoothGray, pBR.x, pBR.y, w, h);
+      const qBL = sampleBilinearGray(smoothGray, pBL.x, pBL.y, w, h);
+      if (qTL < 0 || qTR < 0 || qBR < 0 || qBL < 0) return null;
+
+      const parity = ((iu + iv) & 1) === 0 ? 1 : -1;
+      const diag = ((qTL + qBR) - (qTR + qBL)) * parity * refPhaseSign;
+      const eMin = Math.min(
+        Math.abs(qTL - qTR),
+        Math.abs(qTR - qBR),
+        Math.abs(qBR - qBL),
+        Math.abs(qBL - qTL)
+      );
+      if (diag <= Math.max(16, refContrast * 0.55) || eMin <= Math.max(7, refContrast * 0.26)) {
+        return null;
+      }
+
+      const pred = applyH(H, iu, iv);
+      if (!pred || pred.x < 4 || pred.x >= w - 4 || pred.y < 4 || pred.y >= h - 4) return null;
+
+      const pNextU = applyH(H, iu + 1, iv);
+      const pNextV = applyH(H, iu, iv + 1);
+      const stepU = pNextU ? Math.hypot(pNextU.x - pred.x, pNextU.y - pred.y) : 14;
+      const stepV = pNextV ? Math.hypot(pNextV.x - pred.x, pNextV.y - pred.y) : 14;
+      const stepPx = Math.min(stepU, stepV);
+
+      const expectedPolSign = (((iu + iv) & 1) === rootPar) ? 1 : -1;
+      const searchRad = Math.max(4.0, stepPx * 0.36);
+      let bestIdx = -1;
+      let bestD = searchRad;
+      for (let j = 0; j < peaks.length; j++) {
+        if (usedPeak[j]) continue;
+        const pj = peaks[j];
+        const polDot = (pj.n2x * rootN2x + pj.n2y * rootN2y) * expectedPolSign;
+        if (polDot < 0.20) continue;
+        const d = Math.hypot(pj.x - pred.x, pj.y - pred.y);
+        if (d < bestD) {
+          bestD = d;
+          bestIdx = j;
+        }
+      }
+
+      if (bestIdx >= 0) {
+        usedPeak[bestIdx] = 1;
+        return { iu, iv, x: peaks[bestIdx].x, y: peaks[bestIdx].y, score: peaks[bestIdx].score };
+      }
+
+      // Sintese guiada por homografia para cantos distantes/desfocados nao capturados pelo scan grosso
+      let bx = Math.round(pred.x);
+      let by = Math.round(pred.y);
+      if (bx >= 8 && bx < w - 8 && by >= 8 && by < h - 8) {
+        let bestLocScore = evalChessAt(smoothGray, w, bx, by, 0);
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const nx = bx + dx;
+            const ny = by + dy;
+            if (nx < 8 || nx >= w - 8 || ny < 8 || ny >= h - 8) continue;
+            const sc = evalChessAt(smoothGray, w, nx, ny, 0);
+            if (sc > bestLocScore) {
+              bestLocScore = sc;
+              bx = nx;
+              by = ny;
+            }
+          }
+        }
+      }
+      const sub = refineSaddleSubPixel(smoothGray, w, h, bx, by);
+      if (Math.hypot(sub.x - pred.x, sub.y - pred.y) > 3.2) return null;
+      return { iu, iv, x: sub.x, y: sub.y, score: Math.max(30, diag * 0.45) };
+    }
+
+    function evalStripAlternation(smoothGray, H, isRow, fixedIdx, startVar, refPhaseSign, refContrast, w, h) {
+      const vals = new Float64Array(8);
+      for (let k = 0; k < 8; k++) {
+        const u = isRow ? (startVar + k + 0.5) : (fixedIdx + 0.5);
+        const v = isRow ? (fixedIdx + 0.5) : (startVar + k + 0.5);
+        vals[k] = sampleSquareMean5(smoothGray, H, u, v, w, h);
+      }
+      let pairs = 0, sumAlt = 0, consistentPairs = 0;
+      const minPairDiff = Math.max(7, refContrast * 0.25);
+      for (let k = 0; k < 7; k++) {
+        const l0 = vals[k];
+        const l1 = vals[k + 1];
+        if (l0 < 0 || l1 < 0) continue;
+        const uInt = isRow ? (startVar + k) : fixedIdx;
+        const vInt = isRow ? fixedIdx : (startVar + k);
+        const parity = ((uInt + vInt) & 1) === 0 ? 1 : -1;
+        const d = (l0 - l1) * parity * refPhaseSign;
+        sumAlt += d;
+        pairs++;
+        if (d > minPairDiff) consistentPairs++;
+      }
+      return {
+        pairs,
+        validAlt: pairs > 0 ? (sumAlt / pairs) : 0,
+        consistentRatio: pairs > 0 ? (consistentPairs / pairs) : 0
+      };
+    }
+
     function findExact8x8BoardFromLattice(smoothGray, peaks, w, h) {
       const lattice = growChessboardLattice(peaks);
       if (!lattice) return null;
 
-      // Ajuste inicial da homografia H_lat sobre os nos conectados
-      let srcPts = lattice.nodes.map(nd => ({ u: nd.iu, v: nd.iv }));
-      let dstPts = lattice.nodes.map(nd => ({ x: nd.x, y: nd.y }));
-      let wts = lattice.nodes.map(nd => peaks[nd.peakIdx].score);
-      let H = fitHomographyDLT(srcPts, dstPts, wts);
+      let H = fitHomographyDLT(
+        lattice.nodes.map(nd => ({ u: nd.iu, v: nd.iv })),
+        lattice.nodes.map(nd => ({ x: nd.x, y: nd.y })),
+        lattice.nodes.map(nd => peaks[nd.peakIdx].score)
+      );
       if (!H) return null;
 
-      // Recolhe todos os picos internos perdidos usando H_lat + verifica paridade de polaridade
       const rootNode = lattice.nodes[0];
       const rootPar = ((rootNode.iu + rootNode.iv) & 1);
       const rootN2x = peaks[rootNode.peakIdx].n2x;
       const rootN2y = peaks[rootNode.peakIdx].n2y;
 
-      const uLo = lattice.minIu - 2;
-      const uHi = lattice.maxIu + 2;
-      const vLo = lattice.minIv - 2;
-      const vHi = lattice.maxIv + 2;
+      // Estima fase de xadrez de referencia e contraste mediano das casas centrais
+      let sumDiagPhase = 0;
+      const nodeContrasts = [];
+      for (const nd of lattice.nodes) {
+        const pTL = applyH(H, nd.iu - 0.36, nd.iv - 0.36);
+        const pTR = applyH(H, nd.iu + 0.36, nd.iv - 0.36);
+        const pBR = applyH(H, nd.iu + 0.36, nd.iv + 0.36);
+        const pBL = applyH(H, nd.iu - 0.36, nd.iv + 0.36);
+        if (!pTL || !pTR || !pBR || !pBL) continue;
+        const qTL = sampleBilinearGray(smoothGray, pTL.x, pTL.y, w, h);
+        const qTR = sampleBilinearGray(smoothGray, pTR.x, pTR.y, w, h);
+        const qBR = sampleBilinearGray(smoothGray, pBR.x, pBR.y, w, h);
+        const qBL = sampleBilinearGray(smoothGray, pBL.x, pBL.y, w, h);
+        if (qTL < 0 || qTR < 0 || qBR < 0 || qBL < 0) continue;
+        const parity = ((nd.iu + nd.iv) & 1) === 0 ? 1 : -1;
+        sumDiagPhase += ((qTL + qBR) - (qTR + qBL)) * parity;
+        nodeContrasts.push(0.25 * (Math.abs(qTL - qTR) + Math.abs(qTR - qBR) + Math.abs(qBR - qBL) + Math.abs(qBL - qTL)));
+      }
+      if (nodeContrasts.length < 6) return null;
+      nodeContrasts.sort((a, b) => a - b);
+      const refContrast = nodeContrasts[nodeContrasts.length >> 1];
+      if (refContrast < 10) return null;
+      const refPhaseSign = sumDiagPhase >= 0 ? 1 : -1;
 
-      const harvested = [];
-      const usedHarvestPeak = new Uint8Array(peaks.length);
-      for (let iv = vLo; iv <= vHi; iv++) {
-        for (let iu = uLo; iu <= uHi; iu++) {
-          const pred = applyH(H, iu, iv);
-          if (!pred || pred.x < 6 || pred.x >= w - 6 || pred.y < 6 || pred.y >= h - 6) continue;
-          const expectedPolSign = (((iu + iv) & 1) === rootPar) ? 1 : -1;
-          let bestIdx = -1;
-          let bestD = 3.8;
-          for (let j = 0; j < peaks.length; j++) {
-            if (usedHarvestPeak[j]) continue;
-            const pj = peaks[j];
-            const polDot = (pj.n2x * rootN2x + pj.n2y * rootN2y) * expectedPolSign;
-            if (polDot < 0.25) continue;
-            const d = Math.hypot(pj.x - pred.x, pj.y - pred.y);
-            if (d < bestD) {
-              bestD = d;
-              bestIdx = j;
-            }
-          }
-          if (bestIdx >= 0) {
-            usedHarvestPeak[bestIdx] = 1;
-            harvested.push({ iu, iv, peak: peaks[bestIdx] });
+      // Expansao iterativa (ate 3 passadas) guiada por H + validacao de sela 4-quadrantes E_min + sintese local
+      let curMinIu = lattice.minIu;
+      let curMaxIu = lattice.maxIu;
+      let curMinIv = lattice.minIv;
+      let curMaxIv = lattice.maxIv;
+      let inliers = [];
+      let prevInlierCount = 0;
+
+      for (let pass = 0; pass < 3; pass++) {
+        const uLo = curMinIu - 2;
+        const uHi = curMaxIu + 2;
+        const vLo = curMinIv - 2;
+        const vHi = curMaxIv + 2;
+
+        const usedPeak = new Uint8Array(peaks.length);
+        const candList = [];
+        for (let iv = vLo; iv <= vHi; iv++) {
+          for (let iu = uLo; iu <= uHi; iu++) {
+            const c = verifyAndRefineInternalCorner(
+              smoothGray, H, iu, iv, refPhaseSign, refContrast,
+              peaks, usedPeak, rootN2x, rootN2y, rootPar, w, h
+            );
+            if (c) candList.push(c);
           }
         }
-      }
+        if (candList.length < 9) return null;
 
-      if (harvested.length < 16) return null;
-      H = fitHomographyDLT(
-        harvested.map(m => ({ u: m.iu, v: m.iv })),
-        harvested.map(m => ({ x: m.peak.x, y: m.peak.y })),
-        harvested.map(m => m.peak.score)
-      );
-      if (!H) return null;
+        const nextH = fitHomographyDLT(
+          candList.map(m => ({ u: m.iu, v: m.iv })),
+          candList.map(m => ({ x: m.x, y: m.y })),
+          candList.map(m => m.score)
+        );
+        if (!nextH) return null;
+        H = nextH;
 
-      // Filtra outliers (> 2.5px) e recalcula limites reais da rede
-      const inliers = [];
-      let minIu = Infinity, maxIu = -Infinity, minIv = Infinity, maxIv = -Infinity;
-      for (const m of harvested) {
-        const p = applyH(H, m.iu, m.iv);
-        if (!p) continue;
-        if (Math.hypot(p.x - m.peak.x, p.y - m.peak.y) < 2.6) {
-          inliers.push(m);
-          if (m.iu < minIu) minIu = m.iu;
-          if (m.iu > maxIu) maxIu = m.iu;
-          if (m.iv < minIv) minIv = m.iv;
-          if (m.iv > maxIv) maxIv = m.iv;
+        inliers = [];
+        curMinIu = Infinity; curMaxIu = -Infinity;
+        curMinIv = Infinity; curMaxIv = -Infinity;
+        for (const m of candList) {
+          const p = applyH(H, m.iu, m.iv);
+          if (!p) continue;
+          if (Math.hypot(p.x - m.x, p.y - m.y) < 2.6) {
+            inliers.push(m);
+            if (m.iu < curMinIu) curMinIu = m.iu;
+            if (m.iu > curMaxIu) curMaxIu = m.iu;
+            if (m.iv < curMinIv) curMinIv = m.iv;
+            if (m.iv > curMaxIv) curMaxIv = m.iv;
+          }
         }
+        if (inliers.length < 9 || (curMaxIu - curMinIu) < 2 || (curMaxIv - curMinIv) < 2) return null;
+
+        const refitH = fitHomographyDLT(
+          inliers.map(m => ({ u: m.iu, v: m.iv })),
+          inliers.map(m => ({ x: m.x, y: m.y })),
+          inliers.map(m => m.score)
+        );
+        if (!refitH) return null;
+        H = refitH;
+
+        if (pass >= 1 && inliers.length === prevInlierCount) break;
+        prevInlierCount = inliers.length;
       }
-      if (inliers.length < 16 || (maxIu - minIu) < 3 || (maxIv - minIv) < 3) return null;
 
-      H = fitHomographyDLT(
-        inliers.map(m => ({ u: m.iu, v: m.iv })),
-        inliers.map(m => ({ x: m.peak.x, y: m.peak.y })),
-        inliers.map(m => m.peak.score)
-      );
-      if (!H) return null;
-
-      // Procura a janela exata 8x8 (u0..u0+8, v0..v0+8) onde os 49 cantos internos sao (u0+1..u0+7, v0+1..v0+7)
+      // Tomografia tangencial de fileiras e colunas com grade pre-amostrada:
+      // encontra a janela exata 8x8 sem pular fileiras e suportando corte parcial!
       const inlierSet = new Set(inliers.map(m => `${m.iu},${m.iv}`));
-      const spanU = maxIu - minIu;
-      const spanV = maxIv - minIv;
-      const u0Start = spanU >= 6 ? Math.min(minIu - 1, maxIu - 7) : minIu - (7 - spanU);
-      const u0End = spanU >= 6 ? Math.max(minIu - 1, maxIu - 7) : minIu - 1;
-      const v0Start = spanV >= 6 ? Math.min(minIv - 1, maxIv - 7) : minIv - (7 - spanV);
-      const v0End = spanV >= 6 ? Math.max(minIv - 1, maxIv - 7) : minIv - 1;
+      const u0Start = Math.min(curMinIu - 3, curMaxIu - 8);
+      const u0End = Math.max(curMinIu, curMaxIu - 5);
+      const v0Start = Math.min(curMinIv - 3, curMaxIv - 8);
+      const v0End = Math.max(curMinIv, curMaxIv - 5);
+
+      const gU0 = u0Start - 1;
+      const gV0 = v0Start - 1;
+      const gW = (u0End + 8) - gU0 + 1;
+      const gH = (v0End + 8) - gV0 + 1;
+      const cellGrid = new Float64Array(gW * gH);
+      for (let gv = 0; gv < gH; gv++) {
+        const vCoord = gV0 + gv + 0.5;
+        const ro = gv * gW;
+        for (let gu = 0; gu < gW; gu++) {
+          cellGrid[ro + gu] = sampleSquareMean5(smoothGray, H, gU0 + gu + 0.5, vCoord, w, h);
+        }
+      }
+
+      const minPairDiff = Math.max(7, refContrast * 0.25);
+      function evalStripCached(isRow, fixedIdx, startVar) {
+        let pairs = 0, sumAlt = 0, consistentPairs = 0;
+        for (let k = 0; k < 7; k++) {
+          const uInt = isRow ? (startVar + k) : fixedIdx;
+          const vInt = isRow ? fixedIdx : (startVar + k);
+          const uNext = isRow ? (uInt + 1) : uInt;
+          const vNext = isRow ? vInt : (vInt + 1);
+          const l0 = cellGrid[(vInt - gV0) * gW + (uInt - gU0)];
+          const l1 = cellGrid[(vNext - gV0) * gW + (uNext - gU0)];
+          if (l0 < 0 || l1 < 0) continue;
+          const parity = ((uInt + vInt) & 1) === 0 ? 1 : -1;
+          const d = (l0 - l1) * parity * refPhaseSign;
+          sumAlt += d;
+          pairs++;
+          if (d > minPairDiff) consistentPairs++;
+        }
+        return {
+          pairs,
+          validAlt: pairs > 0 ? (sumAlt / pairs) : 0,
+          consistentRatio: pairs > 0 ? (consistentPairs / pairs) : 0
+        };
+      }
 
       let bestWin = null;
-      const cellLums = new Float64Array(64);
 
       for (let u0 = u0Start; u0 <= u0End; u0++) {
         for (let v0 = v0Start; v0 <= v0End; v0++) {
@@ -1480,14 +1675,73 @@
               if (inlierSet.has(`${u0 + c},${v0 + r}`)) cornersInWin++;
             }
           }
-          if (cornersInWin < 16) continue;
+          if (cornersInWin < 9) continue;
+          const cornersOutWin = inliers.length - cornersInWin;
 
-          let validCells = 0;
-          let evenSum = 0, evenCnt = 0, oddSum = 0, oddCnt = 0;
+          // Avalia alternancia tangencial das 8 fileiras e 8 colunas internas
+          let visRows = 0, visCols = 0;
+          let winScore = 0;
+          const rowValid = new Uint8Array(8);
+          const colValid = new Uint8Array(8);
+
           for (let r = 0; r < 8; r++) {
+            const st = evalStripCached(true, v0 + r, u0);
+            if (st.pairs >= 2) {
+              visRows++;
+              if (st.validAlt > 0.34 * refContrast && st.consistentRatio >= 0.60) {
+                rowValid[r] = 1;
+                winScore += st.validAlt;
+              } else {
+                winScore -= 3.5 * refContrast;
+              }
+            } else {
+              winScore += 0.15 * refContrast;
+            }
+          }
+
+          for (let c = 0; c < 8; c++) {
+            const st = evalStripCached(false, u0 + c, v0);
+            if (st.pairs >= 2) {
+              visCols++;
+              if (st.validAlt > 0.34 * refContrast && st.consistentRatio >= 0.60) {
+                colValid[c] = 1;
+                winScore += st.validAlt;
+              } else {
+                winScore -= 3.5 * refContrast;
+              }
+            } else {
+              winScore += 0.15 * refContrast;
+            }
+          }
+
+          if (visRows < 4 || visCols < 4) continue;
+
+          // Avalia as 4 tiras imediatamente externas (detecta se pulou fileira/coluna real OU se travou na moldura!)
+          const extChecks = [
+            { isRow: true, fixedIdx: v0 - 1, startVar: u0, adjValid: rowValid[0] },
+            { isRow: true, fixedIdx: v0 + 8, startVar: u0, adjValid: rowValid[7] },
+            { isRow: false, fixedIdx: u0 - 1, startVar: v0, adjValid: colValid[0] },
+            { isRow: false, fixedIdx: u0 + 8, startVar: v0, adjValid: colValid[7] }
+          ];
+          for (const ex of extChecks) {
+            const st = evalStripCached(ex.isRow, ex.fixedIdx, ex.startVar);
+            if (st.pairs >= 2) {
+              if (st.validAlt > 0.38 * refContrast && st.consistentRatio >= 0.60) {
+                winScore -= 4.2 * st.validAlt;
+              } else if (ex.adjValid) {
+                winScore += 1.5 * refContrast;
+              }
+            }
+          }
+
+          winScore += 0.5 * refContrast * cornersInWin - 2.5 * refContrast * cornersOutWin;
+
+          // Amostra paridade das casas visiveis para a Rainha Branca d1 direto do cache
+          let validCells = 0, evenSum = 0, evenCnt = 0, oddSum = 0, oddCnt = 0;
+          for (let r = 0; r < 8; r++) {
+            const ro = (v0 + r - gV0) * gW + (u0 - gU0);
             for (let c = 0; c < 8; c++) {
-              const lum = sampleSquareMean5(smoothGray, H, u0 + c + 0.5, v0 + r + 0.5, w, h);
-              cellLums[r * 8 + c] = lum;
+              const lum = cellGrid[ro + c];
               if (lum >= 0) {
                 validCells++;
                 if (((r + c) & 1) === 0) { evenSum += lum; evenCnt++; }
@@ -1495,68 +1749,12 @@
               }
             }
           }
-          if (validCells < 52 || evenCnt < 20 || oddCnt < 20) continue;
-
-          let signedAlt = 0, pairs = 0, consistentPairs = 0;
-          for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 8; c++) {
-              const l0 = cellLums[r * 8 + c];
-              if (l0 < 0) continue;
-              const parity = ((r + c) & 1) === 0 ? 1 : -1;
-              if (c < 7 && cellLums[r * 8 + c + 1] >= 0) {
-                const d = (l0 - cellLums[r * 8 + c + 1]) * parity;
-                signedAlt += d;
-                pairs++;
-                if (Math.abs(d) > 8) consistentPairs++;
-              }
-              if (r < 7 && cellLums[(r + 1) * 8 + c] >= 0) {
-                const d = (l0 - cellLums[(r + 1) * 8 + c]) * parity;
-                signedAlt += d;
-                pairs++;
-                if (Math.abs(d) > 8) consistentPairs++;
-              }
-            }
-          }
-          if (pairs < 64) continue;
-          const interiorContrast = Math.abs(signedAlt) / pairs;
-          const consistentRatio = consistentPairs / pairs;
-          if (consistentRatio < 0.68 || interiorContrast < 10) continue;
-
-          // Penaliza se imediatamente fora da janela 8x8 ainda houver casas alternadas do xadrez
-          const expectedPhaseSign = signedAlt >= 0 ? 1 : -1;
-          let extMatch = 0, extCnt = 0;
-          const extStrips = [
-            { isCol: true, outCoord: -0.5, inIdx: 0 },
-            { isCol: true, outCoord: 8.5, inIdx: 7 },
-            { isCol: false, outCoord: -0.5, inIdx: 0 },
-            { isCol: false, outCoord: 8.5, inIdx: 7 }
-          ];
-          for (const st of extStrips) {
-            for (let k = 0; k < 8; k++) {
-              const r = st.isCol ? k : st.inIdx;
-              const c = st.isCol ? st.inIdx : k;
-              const inLum = cellLums[r * 8 + c];
-              if (inLum < 0) continue;
-              const uS = st.isCol ? (u0 + st.outCoord) : (u0 + c + 0.5);
-              const vS = st.isCol ? (v0 + r + 0.5) : (v0 + st.outCoord);
-              const outLum = sampleSquareMean5(smoothGray, H, uS, vS, w, h);
-              if (outLum < 0) continue;
-              const parity = ((r + c) & 1) === 0 ? 1 : -1;
-              const diff = (inLum - outLum) * parity * expectedPhaseSign;
-              if (diff > interiorContrast * 0.45) {
-                extMatch += Math.min(interiorContrast, diff);
-              }
-              extCnt++;
-            }
-          }
-          const extPenalty = extCnt > 0 ? (extMatch / extCnt) : 0;
-          const winScore = interiorContrast * consistentRatio + 4.5 * cornersInWin - 0.9 * extPenalty;
+          if (validCells < 24 || evenCnt < 8 || oddCnt < 8) continue;
 
           if (!bestWin || winScore > bestWin.winScore) {
             bestWin = {
               u0, v0, winScore,
-              interiorContrast,
-              consistentRatio,
+              interiorContrast: refContrast,
               evenMean: evenSum / evenCnt,
               oddMean: oddSum / oddCnt,
               cornersInWin
@@ -1581,7 +1779,7 @@
         const ci = m.iu - bestWin.u0;
         const ri = m.iv - bestWin.v0;
         if (ci >= 1 && ci <= 7 && ri >= 1 && ri <= 7) {
-          innerMatched.push({ ci, ri, cvX: m.peak.x, cvY: m.peak.y });
+          innerMatched.push({ ci, ri, cvX: m.x, cvY: m.y });
         }
       }
 
@@ -2070,7 +2268,7 @@
     }
 
     function trackLockedRealBoard(smoothGray, peaks, sw, sh, fovDeg) {
-      if (peaks.length < 10) return { ok: false };
+      if (peaks.length < 9) return { ok: false };
 
       const predInner = [];
       for (let ri = 1; ri <= 7; ri++) {
@@ -2082,7 +2280,7 @@
           predInner.push({ ci, ri, predSx: sp.x, predSy: sp.y, cvX: cvPt.x, cvY: cvPt.y });
         }
       }
-      if (predInner.length < 12) return { ok: false };
+      if (predInner.length < 9) return { ok: false };
 
       // Estima deslocamento global rapido (pan) entre picos previstos e picos detectados
       const searchRad = 11.0;
@@ -2104,7 +2302,7 @@
         }
       }
 
-      if (roughMatches.length < 10) return { ok: false };
+      if (roughMatches.length < 9) return { ok: false };
 
       const dxs = roughMatches.map(m => m.dx).sort((a, b) => a - b);
       const dys = roughMatches.map(m => m.dy).sort((a, b) => a - b);
@@ -2129,7 +2327,7 @@
           matched.push({ pr, peak: peaks[bestJ] });
         }
       }
-      if (matched.length < 12) return { ok: false };
+      if (matched.length < 9) return { ok: false };
 
       // Verifica consistencia de polaridade com paridade (ci + ri) % 2
       let polVotesX = 0, polVotesY = 0;
@@ -2147,7 +2345,7 @@
         const sign = (((m.pr.ci + m.pr.ri) & 1) === 0) ? 1 : -1;
         return (m.peak.n2x * refPx + m.peak.n2y * refPy) * sign > 0.25;
       });
-      if (cleanMatches.length < 12) return { ok: false };
+      if (cleanMatches.length < 9) return { ok: false };
 
       // Calcula deslocamento medio na tela em pixels para o Deadband Anti-Tremor!
       const screenObs = [];
